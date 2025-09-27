@@ -208,8 +208,11 @@ async def show_questions_page(update: Update, context: ContextTypes.DEFAULT_TYPE
         question_buttons.append(InlineKeyboardButton(f"{question_num}", callback_data="ignore"))
         
         for option in [1, 2, 3, 4]:
-            # اگر این گزینه قبلاً انتخاب شده، علامت ✅ نشان داده شود
-            button_text = f"{option} ✅" if current_answer == option else str(option)
+    # اگر این گزینه قبلاً انتخاب شده، علامت ✅ نشان داده شود
+            if current_answer == option:
+                button_text = f"{option} ✅"
+            else:
+                button_text = str(option)  
             question_buttons.append(InlineKeyboardButton(button_text, callback_data=f"ans_{question_num}_{option}"))
         
         keyboard.append(question_buttons)
@@ -297,8 +300,11 @@ async def show_correct_answers_page(update: Update, context: ContextTypes.DEFAUL
         question_buttons.append(InlineKeyboardButton(f"{question_num}", callback_data="ignore"))
         
         for option in [1, 2, 3, 4]:
-            # اگر این گزینه قبلاً انتخاب شده، علامت ✅ نشان داده شود
-            button_text = f"{option} ✅" if current_answer == option else str(option)
+    # اگر این گزینه قبلاً انتخاب شده، علامت ✅ نشان داده شود
+            if current_answer == option:
+                button_text = f"{option} ✅"
+            else:
+                button_text = str(option)
             question_buttons.append(InlineKeyboardButton(button_text, callback_data=f"correct_ans_{question_num}_{option}"))
         
         keyboard.append(question_buttons)
@@ -795,6 +801,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             job.schedule_removal()
 
 # مدیریت پاسخ‌های اینلاین
+# مدیریت پاسخ‌های اینلاین
 async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -816,7 +823,16 @@ async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         question_num = int(parts[1])
         answer = int(parts[2])
         
-        exam_setup['answers'][str(question_num)] = answer
+        # بررسی آیا این گزینه قبلاً انتخاب شده است
+        current_answer = exam_setup['answers'].get(str(question_num))
+        
+        if current_answer == answer:
+            # اگر گزینه قبلاً انتخاب شده بود، آن را بردار (تیک را حذف کن)
+            del exam_setup['answers'][str(question_num)]
+        else:
+            # اگر گزینه جدید است، آن را ثبت کن
+            exam_setup['answers'][str(question_num)] = answer
+        
         context.user_data['exam_setup'] = exam_setup
         
         # به روزرسانی در bot_data نیز
@@ -832,7 +848,16 @@ async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         question_num = int(parts[2])
         answer = int(parts[3])
         
-        exam_setup['correct_answers'][str(question_num)] = answer
+        # بررسی آیا این گزینه قبلاً انتخاب شده است
+        current_answer = exam_setup['correct_answers'].get(str(question_num))
+        
+        if current_answer == answer:
+            # اگر گزینه قبلاً انتخاب شده بود، آن را بردار (تیک را حذف کن)
+            del exam_setup['correct_answers'][str(question_num)]
+        else:
+            # اگر گزینه جدید است، آن را ثبت کن
+            exam_setup['correct_answers'][str(question_num)] = answer
+        
         context.user_data['exam_setup'] = exam_setup
         
         # به روزرسانی در bot_data نیز
@@ -1065,7 +1090,6 @@ async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
                  f"📝 مثال: برای ۵ سوال: 12345\n"
                  f"💡 نکته: برای سوالات بی‌پاسخ از 0 استفاده کنید."
         )
-
 # مشاهده نتایج قبلی
 async def show_results(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
