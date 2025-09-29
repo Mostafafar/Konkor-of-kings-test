@@ -882,8 +882,17 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         
         # انتخاب الگوی سوالات
         if data.startswith("pattern_"):
-            pattern = data.split("_")[1]
+    # نگاشت مستقیم callback data به pattern name
+            pattern_map = {
+                'pattern_all': 'all',
+                'pattern_alternate': 'alternate', 
+                'pattern_every_two': 'every_two',
+                'pattern_every_three': 'every_three'
+            }
+            pattern = pattern_map.get(data, 'all')  # مقدار پیش‌فرض all
+    
             exam_setup['question_pattern'] = pattern
+    # بقیه کد...
             
             # محاسبه سوالات بر اساس الگو
             start_question = exam_setup.get('start_question')
