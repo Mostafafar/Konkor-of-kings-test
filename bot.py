@@ -183,14 +183,13 @@ def calculate_questions_by_pattern(start_question, end_question, pattern):
         # یکی در میان - سوالات فرد
         return [q for q in all_questions if q % 2 == 1]
     elif pattern == 'every_two':
-        # دو تا در میان (هر سومین سوال)
-        return [q for i, q in enumerate(all_questions, 1) if i % 3 == 1]
+        # دو تا در میان - هر دو سوال یکی (مثل 21، 23، 25، ...)
+        return [q for i, q in enumerate(all_questions) if i % 2 == 0]
     elif pattern == 'every_three':
-        # سه تا در میان (هر چهارمین سوال)
-        return [q for i, q in enumerate(all_questions, 1) if i % 4 == 1]
+        # سه تا در میان - هر سه سوال یکی (مثل 21، 24، 27، ...)
+        return [q for i, q in enumerate(all_questions) if i % 3 == 0]
     else:
         return all_questions
-
 # نمایش سوالات به صورت صفحه‌بندی شده
 # نمایش سوالات به صورت صفحه‌بندی شده
 async def show_questions_page(update: Update, context: ContextTypes.DEFAULT_TYPE, page: int = 1):
