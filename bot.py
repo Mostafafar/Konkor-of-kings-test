@@ -172,16 +172,37 @@ async def new_exam(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def calculate_total_pages(total_questions):
     return (total_questions + QUESTIONS_PER_PAGE - 1) // QUESTIONS_PER_PAGE
 
+# محاسبه سوالات بر اساس الگو
+def calculate_questions_by_pattern(start_question, end_question, pattern):
+    """محاسبه سوالات بر اساس الگوی انتخاب شده"""
+    all_questions = list(range(start_question, end_question + 1))
+    
+    if pattern == 'all':
+        return all_questions
+    elif pattern == 'alternate':
+        # یکی در میان - سوالات فرد
+        return [q for q in all_questions if q % 2 == 1]
+    elif pattern == 'every_two':
+        # دو تا در میان
+        return [q for i, q in enumerate(all_questions) if i % 3 == 0]
+    elif pattern == 'every_three':
+        # سه تا در میان
+        return [q for i, q in enumerate(all_questions) if i % 4 == 0]
+    else:
+        return all_questions
+
 # نمایش سوالات به صورت صفحه‌بندی شده
 async def show_questions_page(update: Update, context: ContextTypes.DEFAULT_TYPE, page: int = 1):
     exam_setup = context.user_data['exam_setup']
-    start_question = exam_setup.get('start_question')
-    end_question = exam_setup.get('end_question')
     user_answers = exam_setup.get('answers', {})
     
     course_name = exam_setup.get('course_name', 'نامعلوم')
     topic_name = exam_setup.get('topic_name', 'نامعلوم')
     total_questions = exam_setup.get('total_questions')
+    question_pattern = exam_setup.get('question_pattern', 'all')
+    
+    # دریافت لیست سوالات بر اساس الگو
+    question_list = exam_setup.get('question_list', [])
     
     # محاسبه صفحات
     total_pages = calculate_total_pages(total_questions)
@@ -193,13 +214,15 @@ async def show_questions_page(update: Update, context: ContextTypes.DEFAULT_TYPE
     
     message_text = f"📚 درس: {course_name}\n"
     message_text += f"📖 مبحث: {topic_name}\n"
-    message_text += f"📄 صفحه {page} از {total_pages}\n\n"
+    message_text += f"📄 صفحه {page} از {total_pages}\n"
+    message_text += f"🔢 الگو: {get_pattern_name(question_pattern)}\n\n"
     message_text += "📝 لطفاً به سوالات پاسخ دهید:\n\n"
     
     # ایجاد دکمه‌های اینلاین برای سوالات این صفحه
     keyboard = []
     
-    for question_num in range(start_question + start_idx, start_question + end_idx):
+    for i in range(start_idx, end_idx):
+        question_num = question_list[i]
         # وضعیت پاسخ فعلی
         current_answer = user_answers.get(str(question_num))
         status = f" ✅ (گزینه {current_answer})" if current_answer else ""
@@ -210,7 +233,7 @@ async def show_questions_page(update: Update, context: ContextTypes.DEFAULT_TYPE
         question_buttons.append(InlineKeyboardButton(f"{question_num}", callback_data="ignore"))
         
         for option in [1, 2, 3, 4]:
-    # اگر این گزینه قبلاً انتخاب شده، علامت ✅ نشان داده شود
+            # اگر این گزینه قبلاً انتخاب شده، علامت ✅ نشان داده شود
             if current_answer == option:
                 button_text = f"{option} ✅"
             else:
@@ -264,13 +287,15 @@ async def show_questions_page(update: Update, context: ContextTypes.DEFAULT_TYPE
 # نمایش سوالات برای وارد کردن پاسخ‌های صحیح
 async def show_correct_answers_page(update: Update, context: ContextTypes.DEFAULT_TYPE, page: int = 1):
     exam_setup = context.user_data['exam_setup']
-    start_question = exam_setup.get('start_question')
-    end_question = exam_setup.get('end_question')
     correct_answers = exam_setup.get('correct_answers', {})
     
     course_name = exam_setup.get('course_name', 'نامعلوم')
     topic_name = exam_setup.get('topic_name', 'نامعلوم')
     total_questions = exam_setup.get('total_questions')
+    question_pattern = exam_setup.get('question_pattern', 'all')
+    
+    # دریافت لیست سوالات بر اساس الگو
+    question_list = exam_setup.get('question_list', [])
     
     # محاسبه صفحات
     total_pages = calculate_total_pages(total_questions)
@@ -286,13 +311,15 @@ async def show_correct_answers_page(update: Update, context: ContextTypes.DEFAUL
     message_text = f"📚 درس: {course_name}\n"
     message_text += f"📖 مبحث: {topic_name}\n"
     message_text += f"📄 صفحه {page} از {total_pages}\n"
+    message_text += f"🔢 الگو: {get_pattern_name(question_pattern)}\n"
     message_text += f"✅ پاسخ‌های وارد شده: {answered_count}/{total_questions}\n\n"
     message_text += "لطفاً پاسخ‌های صحیح را برای سوالات زیر انتخاب کنید:\n\n"
     
     # ایجاد دکمه‌های اینلاین برای سوالات این صفحه
     keyboard = []
     
-    for question_num in range(start_question + start_idx, start_question + end_idx):
+    for i in range(start_idx, end_idx):
+        question_num = question_list[i]
         # وضعیت پاسخ صحیح فعلی
         current_answer = correct_answers.get(str(question_num))
         
@@ -302,7 +329,7 @@ async def show_correct_answers_page(update: Update, context: ContextTypes.DEFAUL
         question_buttons.append(InlineKeyboardButton(f"{question_num}", callback_data="ignore"))
         
         for option in [1, 2, 3, 4]:
-    # اگر این گزینه قبلاً انتخاب شده، علامت ✅ نشان داده شود
+            # اگر این گزینه قبلاً انتخاب شده، علامت ✅ نشان داده شود
             if current_answer == option:
                 button_text = f"{option} ✅"
             else:
@@ -389,9 +416,10 @@ async def show_pinned_timer(context: ContextTypes.DEFAULT_TYPE, user_id: int, ex
     
     course_name = exam_setup.get('course_name', 'نامعلوم')
     topic_name = exam_setup.get('topic_name', 'نامعلوم')
+    question_pattern = exam_setup.get('question_pattern', 'all')
     
     # فقط نوار پیشرفت و زمان باقیمانده نمایش داده شود
-    timer_text = f"📚 {course_name} - {topic_name}\n⏳ باقیمانده: {minutes:02d}:{seconds:02d}\n{progress_bar}"
+    timer_text = f"📚 {course_name} - {topic_name}\n🔢 {get_pattern_name(question_pattern)}\n⏳ باقیمانده: {minutes:02d}:{seconds:02d}\n{progress_bar}"
     
     # ارسال یا ویرایش پیام تایمر
     if 'timer_message_id' in exam_setup:
@@ -499,12 +527,14 @@ async def finish_exam_auto(context: ContextTypes.DEFAULT_TYPE, user_id: int):
     
     course_name = exam_setup.get('course_name', 'نامعلوم')
     topic_name = exam_setup.get('topic_name', 'نامعلوم')
+    question_pattern = exam_setup.get('question_pattern', 'all')
     
     # ارسال پیام اتمام زمان
     try:
         message = await context.bot.send_message(
             chat_id=user_id,
             text=f"📚 {course_name} - {topic_name}\n"
+                 f"🔢 {get_pattern_name(question_pattern)}\n"
                  f"⏰ زمان آزمون به پایان رسید!\n"
                  f"📊 شما به {answered_count} از {total_questions} سوال پاسخ داده‌اید.\n\n"
                  f"لطفاً پاسخ‌های صحیح را با استفاده از دکمه‌های زیر وارد کنید:"
@@ -534,24 +564,15 @@ def calculate_elapsed_time(start_time):
     elapsed = datetime.now() - start_time
     return round(elapsed.total_seconds() / 60, 2)  # بازگشت زمان بر حسب دقیقه
 
-# تولید سوالات بر اساس الگو
-def generate_questions_by_pattern(start_question, end_question, pattern):
-    """تولید لیست سوالات بر اساس الگوی انتخاب شده"""
-    all_questions = list(range(start_question, end_question + 1))
-    
-    if pattern == 'all':
-        return all_questions
-    elif pattern == 'alternate':
-        # یکی در میان (زوج/فرد)
-        return [q for q in all_questions if (q - start_question) % 2 == 0]
-    elif pattern == 'every_two':
-        # دو تا در میان
-        return [q for q in all_questions if (q - start_question) % 3 == 0]
-    elif pattern == 'every_three':
-        # سه تا در میان
-        return [q for q in all_questions if (q - start_question) % 4 == 0]
-    else:
-        return all_questions
+# دریافت نام الگو
+def get_pattern_name(pattern):
+    pattern_names = {
+        'all': 'همه سوالات (پشت سر هم)',
+        'alternate': 'یکی در میان (زوج/فرد)',
+        'every_two': 'دو تا در میان',
+        'every_three': 'سه تا در میان'
+    }
+    return pattern_names.get(pattern, 'نامعلوم')
 
 # پردازش مراحل ایجاد آزمون
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -619,11 +640,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return
                 
             exam_setup['end_question'] = end_question
-            exam_setup['total_questions'] = total_questions
+            exam_setup['total_questions_original'] = total_questions
             exam_setup['step'] = 'pattern_selection'
             context.user_data['exam_setup'] = exam_setup
             
-            # نمایش دکمه‌های انتخاب الگوی سوالات
+            # نمایش دکمه‌های انتخاب الگو
             keyboard = [
                 [InlineKeyboardButton("1️⃣ همه سوالات (پشت سر هم)", callback_data="pattern_all")],
                 [InlineKeyboardButton("2️⃣ یکی در میان (زوج/فرد)", callback_data="pattern_alternate")],
@@ -633,7 +654,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup = InlineKeyboardMarkup(keyboard)
             
             await update.message.reply_text(
-                "🎯 لطفاً الگوی سوالات را انتخاب کنید:",
+                "🔢 لطفاً الگوی سوالات را انتخاب کنید:",
                 reply_markup=reply_markup
             )
             
@@ -652,16 +673,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             exam_setup['answers'] = {}
             exam_setup['start_time'] = datetime.now()
             context.user_data['exam_setup'] = exam_setup
-            
-            # تولید سوالات بر اساس الگو
-            pattern = exam_setup.get('question_pattern', 'all')
-            start_q = exam_setup.get('start_question')
-            end_q = exam_setup.get('end_question')
-            selected_questions = generate_questions_by_pattern(start_q, end_q, pattern)
-            
-            # ذخیره سوالات انتخاب شده
-            exam_setup['selected_questions'] = selected_questions
-            exam_setup['total_questions'] = len(selected_questions)
             
             # ذخیره در bot_data برای دسترسی در jobها
             if 'user_exams' not in context.bot_data:
@@ -713,9 +724,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         wrong_questions = []
         unanswered_questions = []
         
-        selected_questions = exam_setup.get('selected_questions', [])
+        # دریافت لیست سوالات بر اساس الگو
+        question_list = exam_setup.get('question_list', [])
         
-        for i, question_num in enumerate(selected_questions):
+        for i, question_num in enumerate(question_list):
             user_answer = user_answers.get(str(question_num))
             correct_answer = correct_answers[i]
             
@@ -790,14 +802,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         course_name = exam_setup.get('course_name', 'نامعلوم')
         topic_name = exam_setup.get('topic_name', 'نامعلوم')
-        pattern = exam_setup.get('question_pattern', 'all')
-        pattern_names = {
-            'all': 'همه سوالات',
-            'alternate': 'یکی در میان',
-            'every_two': 'دو تا در میان', 
-            'every_three': 'سه تا در میان'
-        }
-        pattern_name = pattern_names.get(pattern, 'همه سوالات')
+        question_pattern = exam_setup.get('question_pattern', 'all')
         
         # ارسال نتایج
         result_text = f"""
@@ -805,7 +810,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 📚 درس: {course_name}
 📖 مبحث: {topic_name}
-🎯 الگو: {pattern_name}
+🔢 الگو: {get_pattern_name(question_pattern)}
 📅 تاریخ: {jalali_date}
 ⏰ زمان: {tehran_time}
 
@@ -845,50 +850,65 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     pass
             context.bot_data['user_exams'].pop(user_id, None)
         
+        # حذف job تایمر
         job_name = f"timer_{user_id}"
         current_jobs = context.job_queue.get_jobs_by_name(job_name)
         for job in current_jobs:
             job.schedule_removal()
 
-# مدیریت کلیک روی دکمه‌های اینلاین
-async def handle_inline_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# پردازش callback query برای دکمه‌های اینلاین
+async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
     user_id = query.from_user.id
     data = query.data
     
-    # دریافت وضعیت آزمون از bot_data اگر موجود باشد
-    if 'user_exams' in context.bot_data and user_id in context.bot_data['user_exams']:
-        exam_setup = context.bot_data['user_exams'][user_id]
-        context.user_data['exam_setup'] = exam_setup
-    elif 'exam_setup' in context.user_data:
+    # اگر دکمه ignore کلیک شد، هیچ کاری نکن
+    if data == "ignore":
+        return
+    
+    # اگر کاربر در حال راه‌اندازی آزمون است
+    if 'exam_setup' in context.user_data:
         exam_setup = context.user_data['exam_setup']
-    else:
-        await query.edit_message_text("❌ وضعیت آزمون یافت نشد. لطفاً مجدداً شروع کنید.")
-        return
-    
-    # بررسی دکمه‌های الگو
-    if data.startswith('pattern_'):
-        pattern = data.replace('pattern_', '')
-        exam_setup['question_pattern'] = pattern
-        exam_setup['step'] = 3
-        context.user_data['exam_setup'] = exam_setup
         
-        # ذخیره در bot_data
-        if 'user_exams' not in context.bot_data:
-            context.bot_data['user_exams'] = {}
-        context.bot_data['user_exams'][user_id] = exam_setup
+        # انتخاب الگوی سوالات
+        if data.startswith("pattern_"):
+            pattern = data.split("_")[1]
+            exam_setup['question_pattern'] = pattern
+            
+            # محاسبه سوالات بر اساس الگو
+            start_question = exam_setup.get('start_question')
+            end_question = exam_setup.get('end_question')
+            question_list = calculate_questions_by_pattern(start_question, end_question, pattern)
+            total_questions = len(question_list)
+            
+            exam_setup['question_list'] = question_list
+            exam_setup['total_questions'] = total_questions
+            exam_setup['step'] = 3
+            context.user_data['exam_setup'] = exam_setup
+            
+            # نمایش خلاصه و درخواست زمان
+            course_name = exam_setup.get('course_name', 'نامعلوم')
+            topic_name = exam_setup.get('topic_name', 'نامعلوم')
+            
+            summary_text = f"""
+📋 خلاصه آزمون:
+
+📚 درس: {course_name}
+📖 مبحث: {topic_name}
+🔢 محدوده سوالات: {start_question} تا {end_question}
+🔢 الگو: {get_pattern_name(pattern)}
+📝 تعداد سوالات: {total_questions}
+
+⏰ لطفاً زمان آزمون را به دقیقه وارد کنید (اگر زمان محدود نمی‌خواهید، صفر وارد کنید):
+"""
+            await query.edit_message_text(summary_text)
+            return
         
-        await query.edit_message_text(
-            f"⏰ لطفاً زمان آزمون را به دقیقه وارد کنید (اگر زمان محدود نمی‌خواهید، صفر وارد کنید):"
-        )
-        return
-    
-    # بررسی دکمه‌های پاسخ به سوالات
-    if data.startswith('ans_'):
-        parts = data.split('_')
-        if len(parts) == 3:
+        # پاسخ دادن به سوالات
+        elif data.startswith("ans_"):
+            parts = data.split("_")
             question_num = parts[1]
             answer = int(parts[2])
             
@@ -896,20 +916,72 @@ async def handle_inline_buttons(update: Update, context: ContextTypes.DEFAULT_TY
             if 'answers' not in exam_setup:
                 exam_setup['answers'] = {}
             exam_setup['answers'][question_num] = answer
-            
-            # به‌روزرسانی وضعیت
             context.user_data['exam_setup'] = exam_setup
-            if 'user_exams' in context.bot_data and user_id in context.bot_data['user_exams']:
-                context.bot_data['user_exams'][user_id] = exam_setup
             
-            # نمایش مجدد صفحه فعلی
+            # نمایش مجدد صفحه با پاسخ به‌روز شده
             current_page = exam_setup.get('current_page', 1)
             await show_questions_page(update, context, page=current_page)
-    
-    # بررسی دکمه‌های پاسخ صحیح
-    elif data.startswith('correct_ans_'):
-        parts = data.split('_')
-        if len(parts) == 4:
+            return
+        
+        # ناوبری بین صفحات سوالات
+        elif data.startswith("page_"):
+            page = int(data.split("_")[1])
+            await show_questions_page(update, context, page=page)
+            return
+        
+        # اتمام آزمون
+        elif data == "finish_exam":
+            # محاسبه زمان صرف شده
+            start_time = exam_setup.get('start_time')
+            elapsed_time = calculate_elapsed_time(start_time)
+            exam_setup['elapsed_time'] = elapsed_time
+            
+            # حذف job تایمر
+            job_name = f"timer_{user_id}"
+            current_jobs = context.job_queue.get_jobs_by_name(job_name)
+            for job in current_jobs:
+                job.schedule_removal()
+            
+            # تغییر وضعیت به انتظار برای پاسخ‌های صحیح
+            exam_setup['step'] = 'waiting_for_correct_answers_inline'
+            exam_setup['correct_answers'] = {}
+            context.user_data['exam_setup'] = exam_setup
+            
+            # ذخیره در bot_data
+            if 'user_exams' in context.bot_data:
+                context.bot_data['user_exams'][user_id] = exam_setup
+            
+            total_questions = exam_setup.get('total_questions')
+            answered_count = len(exam_setup.get('answers', {}))
+            
+            course_name = exam_setup.get('course_name', 'نامعلوم')
+            topic_name = exam_setup.get('topic_name', 'نامعلوم')
+            question_pattern = exam_setup.get('question_pattern', 'all')
+            
+            await query.edit_message_text(
+                f"📚 {course_name} - {topic_name}\n"
+                f"🔢 {get_pattern_name(question_pattern)}\n"
+                f"✅ شما به {answered_count} از {total_questions} سوال پاسخ داده‌اید.\n\n"
+                f"لطفاً پاسخ‌های صحیح را با استفاده از دکمه‌های زیر وارد کنید:"
+            )
+            
+            # نمایش اولین صفحه پاسخ‌های صحیح
+            await show_correct_answers_page(update, context, page=1)
+            
+            # آنپین کردن پیام تایمر
+            if 'timer_message_id' in exam_setup:
+                try:
+                    await context.bot.unpin_chat_message(
+                        chat_id=user_id,
+                        message_id=exam_setup['timer_message_id']
+                    )
+                except:
+                    pass
+            return
+        
+        # وارد کردن پاسخ‌های صحیح با دکمه‌های اینلاین
+        elif data.startswith("correct_ans_"):
+            parts = data.split("_")
             question_num = parts[2]
             answer = int(parts[3])
             
@@ -917,180 +989,126 @@ async def handle_inline_buttons(update: Update, context: ContextTypes.DEFAULT_TY
             if 'correct_answers' not in exam_setup:
                 exam_setup['correct_answers'] = {}
             exam_setup['correct_answers'][question_num] = answer
-            
-            # به‌روزرسانی وضعیت
             context.user_data['exam_setup'] = exam_setup
-            if 'user_exams' in context.bot_data and user_id in context.bot_data['user_exams']:
-                context.bot_data['user_exams'][user_id] = exam_setup
             
-            # نمایش مجدد صفحه فعلی
+            # نمایش مجدد صفحه با پاسخ به‌روز شده
             current_page = exam_setup.get('correct_answers_page', 1)
             await show_correct_answers_page(update, context, page=current_page)
-    
-    # بررسی دکمه‌های صفحه‌بندی سوالات
-    elif data.startswith('page_'):
-        page = int(data.split('_')[1])
-        await show_questions_page(update, context, page=page)
-    
-    # بررسی دکمه‌های صفحه‌بندی پاسخ‌های صحیح
-    elif data.startswith('correct_page_'):
-        page = int(data.split('_')[2])
-        await show_correct_answers_page(update, context, page=page)
-    
-    # اتمام آزمون
-    elif data == 'finish_exam':
-        exam_setup['step'] = 'waiting_for_correct_answers_inline'
-        exam_setup['correct_answers'] = {}
-        context.user_data['exam_setup'] = exam_setup
-        
-        # محاسبه زمان صرف شده
-        start_time = exam_setup.get('start_time')
-        elapsed_time = calculate_elapsed_time(start_time)
-        exam_setup['elapsed_time'] = elapsed_time
-        
-        # حذف job تایمر
-        job_name = f"timer_{user_id}"
-        current_jobs = context.job_queue.get_jobs_by_name(job_name)
-        for job in current_jobs:
-            job.schedule_removal()
-        
-        # آنپین کردن پیام تایمر
-        if 'timer_message_id' in exam_setup:
-            try:
-                await context.bot.unpin_chat_message(
-                    chat_id=user_id,
-                    message_id=exam_setup['timer_message_id']
-                )
-            except:
-                pass
-        
-        total_questions = exam_setup.get('total_questions')
-        answered_count = len(exam_setup.get('answers', {}))
-        
-        course_name = exam_setup.get('course_name', 'نامعلوم')
-        topic_name = exam_setup.get('topic_name', 'نامعلوم')
-        
-        await query.edit_message_text(
-            f"✅ آزمون شما با موفقیت به پایان رسید!\n\n"
-            f"📚 {course_name} - {topic_name}\n"
-            f"📊 شما به {answered_count} از {total_questions} سوال پاسخ داده‌اید.\n\n"
-            f"لطفاً پاسخ‌های صحیح را با استفاده از دکمه‌های زیر وارد کنید:"
-        )
-        
-        # نمایش اولین صفحه پاسخ‌های صحیح
-        await show_correct_answers_page(update, context, page=1)
-    
-    # اتمام وارد کردن پاسخ‌های صحیح
-    elif data == 'finish_correct_answers':
-        total_questions = exam_setup.get('total_questions')
-        correct_answers = exam_setup.get('correct_answers', {})
-        
-        if len(correct_answers) != total_questions:
-            await query.answer("❌ لطفاً برای همه سوالات پاسخ صحیح وارد کنید.", show_alert=True)
             return
         
-        user_answers = exam_setup.get('answers', {})
-        correct_questions = []
-        wrong_questions = []
-        unanswered_questions = []
+        # ناوبری بین صفحات پاسخ‌های صحیح
+        elif data.startswith("correct_page_"):
+            page = int(data.split("_")[2])
+            await show_correct_answers_page(update, context, page=page)
+            return
         
-        selected_questions = exam_setup.get('selected_questions', [])
-        
-        for question_num in selected_questions:
-            str_question_num = str(question_num)
-            user_answer = user_answers.get(str_question_num)
-            correct_answer = correct_answers.get(str_question_num)
+        # اتمام وارد کردن پاسخ‌های صحیح
+        elif data == "finish_correct_answers":
+            correct_answers = exam_setup.get('correct_answers', {})
+            user_answers = exam_setup.get('answers', {})
+            total_questions = exam_setup.get('total_questions')
             
-            if user_answer is None:
-                unanswered_questions.append(question_num)
-            elif user_answer == correct_answer:
-                correct_questions.append(question_num)
-            else:
-                wrong_questions.append(question_num)
-        
-        # محاسبه نتایج
-        correct_count = len(correct_questions)
-        wrong_count = len(wrong_questions)
-        unanswered_count = len(unanswered_questions)
-
-        # درصد بدون نمره منفی
-        percentage_without_penalty = (correct_count / total_questions) * 100 if total_questions > 0 else 0
-
-        # محاسبه نمره منفی
-        raw_score = correct_count
-        penalty = wrong_count / 3.0  # کسر ⅓ نمره به ازای هر پاسخ اشتباه
-        final_score = max(0, raw_score - penalty)
-        final_percentage = (final_score / total_questions) * 100 if total_questions > 0 else 0
-
-        # محاسبه زمان صرف شده
-        elapsed_time = exam_setup.get('elapsed_time', 0)
-        
-        # دریافت تاریخ و زمان تهران
-        jalali_date = get_jalali_date()
-        tehran_time = get_tehran_time()
-        
-        # ذخیره نتایج در دیتابیس
-        saved_to_db = False
-        try:
-            conn = get_db_connection()
-            if conn:
-                cur = conn.cursor()
+            # بررسی اینکه آیا همه سوالات پاسخ صحیح دارند
+            if len(correct_answers) != total_questions:
+                await query.answer("لطفاً برای همه سوالات پاسخ صحیح وارد کنید.", show_alert=True)
+                return
+            
+            # محاسبه نتایج
+            correct_questions = []
+            wrong_questions = []
+            unanswered_questions = []
+            
+            # دریافت لیست سوالات بر اساس الگو
+            question_list = exam_setup.get('question_list', [])
+            
+            for question_num in question_list:
+                str_question_num = str(question_num)
+                user_answer = user_answers.get(str_question_num)
+                correct_answer = correct_answers.get(str_question_num)
                 
-                # تبدیل دیکشنری correct_answers به رشته عددی
-                correct_answers_str = ''.join(str(correct_answers.get(str(q), 0)) for q in selected_questions)
-                
-                cur.execute(
-                    """
-                    INSERT INTO exams 
-                    (user_id, course_name, topic_name, start_question, end_question, total_questions, 
-                     exam_duration, elapsed_time, answers, correct_answers, score, wrong_questions, 
-                     unanswered_questions, jalali_date, tehran_time, question_pattern)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    """,
-                    (
-                        user_id,
-                        exam_setup.get('course_name'),
-                        exam_setup.get('topic_name'),
-                        exam_setup.get('start_question'),
-                        exam_setup.get('end_question'),
-                        total_questions,
-                        exam_setup.get('exam_duration'),
-                        elapsed_time,
-                        str(user_answers),
-                        correct_answers_str,
-                        final_percentage,
-                        str(wrong_questions),
-                        str(unanswered_questions),
-                        jalali_date,
-                        tehran_time,
-                        exam_setup.get('question_pattern', 'all')
+                if user_answer is None:
+                    unanswered_questions.append(question_num)
+                elif user_answer == correct_answer:
+                    correct_questions.append(question_num)
+                else:
+                    wrong_questions.append(question_num)
+            
+            # محاسبه نتایج
+            correct_count = len(correct_questions)
+            wrong_count = len(wrong_questions)
+            unanswered_count = len(unanswered_questions)
+
+            # درصد بدون نمره منفی
+            percentage_without_penalty = (correct_count / total_questions) * 100 if total_questions > 0 else 0
+
+            # محاسبه نمره منفی
+            raw_score = correct_count
+            penalty = wrong_count / 3.0  # کسر ⅓ نمره به ازای هر پاسخ اشتباه
+            final_score = max(0, raw_score - penalty)
+            final_percentage = (final_score / total_questions) * 100 if total_questions > 0 else 0
+
+            # محاسبه زمان صرف شده
+            elapsed_time = exam_setup.get('elapsed_time', 0)
+            
+            # دریافت تاریخ و زمان تهران
+            jalali_date = get_jalali_date()
+            tehran_time = get_tehran_time()
+            
+            # ذخیره نتایج در دیتابیس
+            saved_to_db = False
+            try:
+                conn = get_db_connection()
+                if conn:
+                    cur = conn.cursor()
+                    
+                    # تبدیل correct_answers به رشته عددی
+                    correct_answers_str = ''.join(str(correct_answers.get(str(q), 0)) for q in question_list)
+                    
+                    cur.execute(
+                        """
+                        INSERT INTO exams 
+                        (user_id, course_name, topic_name, start_question, end_question, total_questions, 
+                         exam_duration, elapsed_time, answers, correct_answers, score, wrong_questions, 
+                         unanswered_questions, jalali_date, tehran_time, question_pattern)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        """,
+                        (
+                            user_id,
+                            exam_setup.get('course_name'),
+                            exam_setup.get('topic_name'),
+                            exam_setup.get('start_question'),
+                            exam_setup.get('end_question'),
+                            total_questions,
+                            exam_setup.get('exam_duration'),
+                            elapsed_time,
+                            str(user_answers),
+                            correct_answers_str,
+                            final_percentage,
+                            str(wrong_questions),
+                            str(unanswered_questions),
+                            jalali_date,
+                            tehran_time,
+                            exam_setup.get('question_pattern', 'all')
+                        )
                     )
-                )
-                conn.commit()
-                cur.close()
-                conn.close()
-                saved_to_db = True
-        except Exception as e:
-            logger.error(f"Error saving to database: {e}")
+                    conn.commit()
+                    cur.close()
+                    conn.close()
+                    saved_to_db = True
+            except Exception as e:
+                logger.error(f"Error saving to database: {e}")
 
-        course_name = exam_setup.get('course_name', 'نامعلوم')
-        topic_name = exam_setup.get('topic_name', 'نامعلوم')
-        pattern = exam_setup.get('question_pattern', 'all')
-        pattern_names = {
-            'all': 'همه سوالات',
-            'alternate': 'یکی در میان',
-            'every_two': 'دو تا در میان', 
-            'every_three': 'سه تا در میان'
-        }
-        pattern_name = pattern_names.get(pattern, 'همه سوالات')
-        
-        # ارسال نتایج
-        result_text = f"""
+            course_name = exam_setup.get('course_name', 'نامعلوم')
+            topic_name = exam_setup.get('topic_name', 'نامعلوم')
+            question_pattern = exam_setup.get('question_pattern', 'all')
+            
+            # ارسال نتایج
+            result_text = f"""
 📊 نتایج آزمون شما:
 
 📚 درس: {course_name}
 📖 مبحث: {topic_name}
-🎯 الگو: {pattern_name}
+🔢 الگو: {get_pattern_name(question_pattern)}
 📅 تاریخ: {jalali_date}
 ⏰ زمان: {tehran_time}
 
@@ -1110,31 +1128,36 @@ async def handle_inline_buttons(update: Update, context: ContextTypes.DEFAULT_TY
 💡 نکته: هر ۳ پاسخ اشتباه، معادل ۱ پاسخ صحیح نمره منفی دارد.
 """
 
-        if not saved_to_db:
-            result_text += "\n\n⚠️ نتایج در پایگاه داده ذخیره نشد (مشکل اتصال)."
+            if not saved_to_db:
+                result_text += "\n\n⚠️ نتایج در پایگاه داده ذخیره نشد (مشکل اتصال)."
 
-        await query.edit_message_text(result_text)
+            await query.edit_message_text(result_text)
+            
+            # پاک کردن وضعیت آزمون
+            context.user_data.pop('exam_setup', None)
+            if 'user_exams' in context.bot_data and user_id in context.bot_data['user_exams']:
+                context.bot_data['user_exams'].pop(user_id, None)
+            return
         
-        # پاک کردن وضعیت آزمون
-        context.user_data.pop('exam_setup', None)
-        if 'user_exams' in context.bot_data and user_id in context.bot_data['user_exams']:
-            context.bot_data['user_exams'].pop(user_id, None)
-    
-    # تغییر به حالت ورود متن
-    elif data == 'switch_to_text_input':
-        exam_setup['step'] = 'waiting_for_correct_answers'
-        context.user_data['exam_setup'] = exam_setup
-        
-        await query.edit_message_text(
-            "🔢 لطفاً پاسخ‌های صحیح را به صورت یک رشته عددی وارد کنید:\n\n"
-            "مثال: برای ۵ سوال، اگر پاسخ‌ها به ترتیب ۱، ۲، ۳، ۴، ۱ باشند، رشته زیر را وارد کنید:\n"
-            "12341\n\n"
-            "تعداد سوالات شما: " + str(exam_setup.get('total_questions'))
-        )
-    
-    # نادیده گرفتن کلیک‌های تصادفی
-    elif data == 'ignore':
-        pass
+        # تغییر به حالت وارد کردن رشته عددی
+        elif data == "switch_to_text_input":
+            exam_setup['step'] = 'waiting_for_correct_answers'
+            context.user_data['exam_setup'] = exam_setup
+            
+            total_questions = exam_setup.get('total_questions')
+            
+            await query.edit_message_text(
+                f"📝 لطفاً پاسخ‌های صحیح را به صورت یک رشته {total_questions} رقمی وارد کنید:\n\n"
+                f"مثال: برای ۵ سوال: 12345\n"
+                f"که به معنای:\n"
+                f"سوال ۱: گزینه ۱\n"
+                f"سوال ۲: گزینه ۲\n"
+                f"سوال ۳: گزینه ۳\n"
+                f"سوال ۴: گزینه ۴\n"
+                f"سوال ۵: گزینه ۵\n\n"
+                f"⚠️ توجه: رشته ارسالی باید دقیقاً {total_questions} رقم باشد."
+            )
+            return
 
 # نمایش نتایج قبلی
 async def show_results(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1148,11 +1171,17 @@ async def show_results(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else:
                 await update.message.reply_text("❌ خطا در اتصال به پایگاه داده.")
             return
-        
+            
         cur = conn.cursor()
+        
         cur.execute(
-            "SELECT course_name, topic_name, jalali_date, tehran_time, score, total_questions, question_pattern "
-            "FROM exams WHERE user_id = %s ORDER BY created_at DESC LIMIT 10",
+            """
+            SELECT course_name, topic_name, jalali_date, tehran_time, score, total_questions, question_pattern
+            FROM exams 
+            WHERE user_id = %s 
+            ORDER BY created_at DESC 
+            LIMIT 10
+            """,
             (user_id,)
         )
         
@@ -1162,33 +1191,25 @@ async def show_results(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         if not results:
             if update.callback_query:
-                await update.callback_query.message.reply_text("📭 هیچ نتیجه‌ای برای نمایش وجود ندارد.")
+                await update.callback_query.message.reply_text("📭 هیچ نتیجه‌ای یافت نشد.")
             else:
-                await update.message.reply_text("📭 هیچ نتیجه‌ای برای نمایش وجود ندارد.")
+                await update.message.reply_text("📭 هیچ نتیجه‌ای یافت نشد.")
             return
         
-        pattern_names = {
-            'all': 'همه سوالات',
-            'alternate': 'یکی در میان',
-            'every_two': 'دو تا در میان', 
-            'every_three': 'سه تا در میان'
-        }
+        result_text = "📊 نتایج آزمون‌های اخیر شما:\n\n"
         
-        response = "📊 نتایج آزمون‌های اخیر شما:\n\n"
-        for i, result in enumerate(results, 1):
-            course_name, topic_name, jalali_date, tehran_time, score, total_questions, pattern = result
-            pattern_name = pattern_names.get(pattern, 'همه سوالات')
-            
-            response += f"{i}. 📚 {course_name}\n"
-            response += f"   📖 {topic_name}\n"
-            response += f"   🎯 {pattern_name}\n"
-            response += f"   📅 {jalali_date} - ⏰ {tehran_time}\n"
-            response += f"   📊 نمره: {score:.2f}% از {total_questions} سوال\n\n"
+        for i, (course_name, topic_name, jalali_date, tehran_time, score, total_questions, question_pattern) in enumerate(results, 1):
+            pattern_name = get_pattern_name(question_pattern)
+            result_text += f"{i}. 📚 {course_name}\n"
+            result_text += f"   📖 {topic_name}\n"
+            result_text += f"   🔢 {pattern_name}\n"
+            result_text += f"   📅 {jalali_date} - ⏰ {tehran_time}\n"
+            result_text += f"   📊 نمره: {score:.2f}% از {total_questions} سوال\n\n"
         
         if update.callback_query:
-            await update.callback_query.message.reply_text(response)
+            await update.callback_query.message.reply_text(result_text)
         else:
-            await update.message.reply_text(response)
+            await update.message.reply_text(result_text)
             
     except Exception as e:
         logger.error(f"Error retrieving results: {e}")
@@ -1201,25 +1222,22 @@ async def show_results(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def main():
     # راه‌اندازی دیتابیس
     if not init_db():
-        logger.error("Failed to initialize database. Exiting...")
+        logger.error("Failed to initialize database. Exiting.")
         return
     
     # ایجاد اپلیکیشن
     application = Application.builder().token(TOKEN).build()
     
-    # اضافه کردن handlerها
+    # اضافه کردن handlers
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("new_exam", new_exam))
     application.add_handler(CommandHandler("results", show_results))
-    
-    application.add_handler(CallbackQueryHandler(handle_button, pattern="^(new_exam|results)$"))
-    application.add_handler(CallbackQueryHandler(handle_inline_buttons))
-    
+    application.add_handler(CallbackQueryHandler(handle_callback_query))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
-    # اجرای ربات
-    logger.info("Bot is starting...")
+    # شروع ربات
+    print("🤖 ربات در حال اجرا است...")
     application.run_polling()
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
