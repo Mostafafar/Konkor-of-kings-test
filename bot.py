@@ -178,8 +178,11 @@ def calculate_questions_by_pattern(start_question, end_question, pattern):
     if pattern == 'all':
         return all_questions
     elif pattern == 'alternate':
-        # یکی در میان - سوالات فرد
-        return [q for q in all_questions if q % 2 == 1]
+        # یکی در میان - بر اساس زوج/فرد بودن اولین سوال
+        if start_question % 2 == 0:  # اگر اولین سوال زوج باشد
+            return [q for q in all_questions if q % 2 == 0]  # سوالات زوج
+        else:  # اگر اولین سوال فرد باشد
+            return [q for q in all_questions if q % 2 == 1]  # سوالات فرد
     elif pattern == 'every_two':
         # دو تا در میان (هر سومین سوال)
         return [q for i, q in enumerate(all_questions, 1) if i % 3 == 1]
