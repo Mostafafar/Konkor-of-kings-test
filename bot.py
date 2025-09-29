@@ -192,6 +192,7 @@ def calculate_questions_by_pattern(start_question, end_question, pattern):
         return all_questions
 
 # نمایش سوالات به صورت صفحه‌بندی شده
+# نمایش سوالات به صورت صفحه‌بندی شده
 async def show_questions_page(update: Update, context: ContextTypes.DEFAULT_TYPE, page: int = 1):
     exam_setup = context.user_data['exam_setup']
     user_answers = exam_setup.get('answers', {})
@@ -274,6 +275,9 @@ async def show_questions_page(update: Update, context: ContextTypes.DEFAULT_TYPE
             return
         except Exception as e:
             logger.error(f"Error editing message: {e}")
+            # اگر ویرایش با خطا مواجه شد، پیام جدید ارسال کن
+            # پاک کردن ID پیام قدیمی
+            exam_setup.pop('exam_message_id', None)
     
     # ارسال پیام جدید و ذخیره ID آن
     message = await context.bot.send_message(
@@ -284,6 +288,7 @@ async def show_questions_page(update: Update, context: ContextTypes.DEFAULT_TYPE
     exam_setup['exam_message_id'] = message.message_id
     context.user_data['exam_setup'] = exam_setup
 
+# نمایش سوالات برای وارد کردن پاسخ‌های صحیح
 # نمایش سوالات برای وارد کردن پاسخ‌های صحیح
 async def show_correct_answers_page(update: Update, context: ContextTypes.DEFAULT_TYPE, page: int = 1):
     exam_setup = context.user_data['exam_setup']
@@ -376,6 +381,9 @@ async def show_correct_answers_page(update: Update, context: ContextTypes.DEFAUL
             return
         except Exception as e:
             logger.error(f"Error editing correct answers message: {e}")
+            # اگر ویرایش با خطا مواجه شد، پیام جدید ارسال کن
+            # پاک کردن ID پیام قدیمی
+            exam_setup.pop('correct_answers_message_id', None)
     
     # ارسال پیام جدید و ذخیره ID آن
     if update.callback_query:
@@ -857,6 +865,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             job.schedule_removal()
 
 # پردازش callback query برای دکمه‌های اینلاین
+# پردازش callback query برای دکمه‌های اینلاین
 async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -915,7 +924,17 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             # ذخیره پاسخ کاربر
             if 'answers' not in exam_setup:
                 exam_setup['answers'] = {}
-            exam_setup['answers'][question_num] = answer
+            
+            # بررسی آیا این گزینه قبلاً انتخاب شده است
+            current_answer = exam_setup['answers'].get(question_num)
+            
+            if current_answer == answer:
+                # اگر گزینه قبلاً انتخاب شده بود، آن را بردار (تیک را حذف کن)
+                del exam_setup['answers'][question_num]
+            else:
+                # اگر گزینه جدید است، آن را ثبت کن
+                exam_setup['answers'][question_num] = answer
+            
             context.user_data['exam_setup'] = exam_setup
             
             # نمایش مجدد صفحه با پاسخ به‌روز شده
@@ -988,7 +1007,17 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             # ذخیره پاسخ صحیح
             if 'correct_answers' not in exam_setup:
                 exam_setup['correct_answers'] = {}
-            exam_setup['correct_answers'][question_num] = answer
+            
+            # بررسی آیا این گزینه قبلاً انتخاب شده است
+            current_answer = exam_setup['correct_answers'].get(question_num)
+            
+            if current_answer == answer:
+                # اگر گزینه قبلاً انتخاب شده بود، آن را بردار (تیک را حذف کن)
+                del exam_setup['correct_answers'][question_num]
+            else:
+                # اگر گزینه جدید است، آن را ثبت کن
+                exam_setup['correct_answers'][question_num] = answer
+            
             context.user_data['exam_setup'] = exam_setup
             
             # نمایش مجدد صفحه با پاسخ به‌روز شده
