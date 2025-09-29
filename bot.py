@@ -577,6 +577,8 @@ def get_pattern_name(pattern):
         'every_two': 'دو تا در میان',
         'every_three': 'سه تا در میان'
     }
+    # قبل از فراخوانی get_pattern_name این را اضافه کنید
+    print(f"Debug - pattern value: '{pattern}', type: {type(pattern)}")
     return pattern_names.get(pattern, 'نامعلوم')
 
 # پردازش مراحل ایجاد آزمون
