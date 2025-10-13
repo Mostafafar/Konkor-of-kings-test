@@ -17,7 +17,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # توکن ربات
-TOKEN = "8211286788:AAEf0nacvSZy7uXfUmcxNDkGquujQuvYzbE"
+TOKEN = "7584437136:AAFVtfF9RjCyteONcz8DSg2F2CfhgQT2GcQ"
 
 # آیدی ادمین (را با آیدی تلگرام خود جایگزین کنید)
 ADMIN_ID = 6680287530  # 👈 آیدی عددی تلگرام خود را اینجا قرار دهید
