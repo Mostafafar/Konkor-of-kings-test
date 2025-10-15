@@ -223,30 +223,31 @@ class QuizBot:
         self.db = Database()
         
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """شروع ربات و دریافت شماره تلفن"""
-        user = update.effective_user
-        user_id = user.id
+    """شروع ربات و دریافت شماره تلفن"""
+    user = update.effective_user
+    user_id = user.id
+    
+    # بررسی ثبت نام کاربر
+    user_data = self.db.get_user(user_id)
+    
+    if user_data:
+        await self.show_main_menu(update, context)
+    else:
+        # استفاده از ReplyKeyboardMarkup برای دکمه ارسال شماره
+        keyboard = [
+            [{"text": "📞 ارسال شماره تلفن", "request_contact": True}]
+        ]
+        reply_markup = ReplyKeyboardMarkup(
+            keyboard, 
+            resize_keyboard=True, 
+            one_time_keyboard=True
+        )
         
-        # بررسی ثبت نام کاربر
-        user_data = self.db.get_user(user_id)
-        
-        if user_data:
-            await self.show_main_menu(update, context)
-        else:
-            keyboard = [
-                [InlineKeyboardButton("📞 ارسال شماره تلفن", request_contact=True)]
-            ]
-            reply_markup = ReplyKeyboardMarkup(
-                keyboard, 
-                resize_keyboard=True, 
-                one_time_keyboard=True
-            )
-            
-            await update.message.reply_text(
-                "👋 به ربات آزمون خوش آمدید!\n\n"
-                "برای استفاده از ربات، لطفاً شماره تلفن خود را ارسال کنید:",
-                reply_markup=reply_markup
-            )
+        await update.message.reply_text(
+            "👋 به ربات آزمون خوش آمدید!\n\n"
+            "برای استفاده از ربات، لطفاً شماره تلفن خود را ارسال کنید:",
+            reply_markup=reply_markup
+        )
     
     async def handle_contact(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """پردازش شماره تلفن دریافتی"""
