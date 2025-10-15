@@ -1,760 +1,926 @@
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes, ConversationHandler
-import json
-import datetime
-from typing import Dict, List
+import os
+import logging
+import psycopg2
 import asyncio
-from pathlib import Path
+from datetime import datetime, timedelta
+from typing import Dict, List, Optional
 
-# States for conversation
-WAITING_EXCEL, WAITING_DAY_NUMBER, WAITING_SUBJECT_DATA = range(3)
+from telegram import (
+    Update, 
+    InlineKeyboardButton, 
+    InlineKeyboardMarkup,
+    ReplyKeyboardMarkup,
+    ReplyKeyboardRemove,
+    InputMediaPhoto
+)
+from telegram.ext import (
+    Application, 
+    CommandHandler, 
+    MessageHandler, 
+    CallbackQueryHandler,
+    ContextTypes, 
+    filters
+)
+from telegram.constants import ParseMode
 
-# لیست مشاوران (می‌توانید این را در دیتابیس ذخیره کنید)
-ADVISORS = [6680287530]  # آیدی‌های تلگرام مشاوران
+# تنظیمات دیتابیس PostgreSQL
+DB_CONFIG = {
+    'dbname': 'quiz_bot_db',
+    'user': 'postgres',
+    'password': 'your_password',
+    'host': 'localhost',
+    'port': '5432'
+}
 
-class StudyPlanBot:
-    def __init__(self, token: str):
-        self.application = Application.builder().token(token).build()
-        self.plans = {}  # {user_id: {day1: {subjects: []}, day2: {}, ...}}
-        self.user_data = {}  # {user_id: {current_day: 1, advisor_id: xxx, start_date: xxx}}
-        self.load_data()
-        self.setup_handlers()
+# تنظیمات ربات
+BOT_TOKEN = "7584437136:AAFVtfF9RjCyteONcz8DSg2F2CfhgQT2GcQ"
+ADMIN_ID = 6680287530  # آیدی عددی ادمین
+PHOTOS_DIR = "photos"
+
+# ایجاد دایرکتوری عکس‌ها
+os.makedirs(PHOTOS_DIR, exist_ok=True)
+
+# تنظیم لاگ
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
+logger = logging.getLogger(__name__)
+
+class Database:
+    def __init__(self):
+        self.connection = None
+        self.connect()
+        self.init_database()
     
-    def setup_handlers(self):
-        """تنظیم همه هندلرها"""
-        # دستورات عمومی
-        self.application.add_handler(CommandHandler("start", self.start))
-        
-        # دستورات دانش‌آموز
-        self.application.add_handler(CommandHandler("plan", self.show_plan))
-        self.application.add_handler(CommandHandler("today", self.show_today))
-        self.application.add_handler(CommandHandler("stats", self.show_stats))
-        self.application.add_handler(CommandHandler("progress", self.show_progress))
-        self.application.add_handler(CommandHandler("next", self.next_day))
-        self.application.add_handler(CommandHandler("prev", self.prev_day))
-        self.application.add_handler(CommandHandler("reset", self.reset_day))
-        
-        # دستورات مشاور
-        self.application.add_handler(CommandHandler("advisor", self.advisor_panel))
-        self.application.add_handler(CommandHandler("send_plan", self.send_plan_request))
-        self.application.add_handler(CommandHandler("edit_plan", self.edit_plan_request))
-        self.application.add_handler(CommandHandler("view_students", self.view_students))
-        self.application.add_handler(CommandHandler("student_stats", self.student_stats))
-        
-        # هندلر دریافت فایل
-        self.application.add_handler(MessageHandler(filters.Document.ALL, self.handle_document))
-        
-        # هندلر دکمه‌ها
-        self.application.add_handler(CallbackQueryHandler(self.button_handler))
-        
-        # هندلر پیام‌های متنی
-        self.application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_text))
-    
-    def load_data(self):
-        """بارگذاری داده‌ها از فایل"""
+    def connect(self):
+        """اتصال به دیتابیس PostgreSQL"""
         try:
-            if Path("plans.json").exists():
-                with open("plans.json", "r", encoding="utf-8") as f:
-                    self.plans = json.load(f)
-            if Path("users.json").exists():
-                with open("users.json", "r", encoding="utf-8") as f:
-                    self.user_data = json.load(f)
+            self.connection = psycopg2.connect(**DB_CONFIG)
+            logger.info("Connected to PostgreSQL database")
         except Exception as e:
-            print(f"خطا در بارگذاری داده‌ها: {e}")
+            logger.error(f"Database connection error: {e}")
+            raise
     
-    def save_data(self):
-        """ذخیره داده‌ها در فایل"""
+    def init_database(self):
+        """ایجاد جداول دیتابیس"""
         try:
-            with open("plans.json", "w", encoding="utf-8") as f:
-                json.dump(self.plans, f, ensure_ascii=False, indent=2)
-            with open("users.json", "w", encoding="utf-8") as f:
-                json.dump(self.user_data, f, ensure_ascii=False, indent=2)
+            cursor = self.connection.cursor()
+            
+            # جدول کاربران
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS users (
+                    user_id BIGINT PRIMARY KEY,
+                    phone_number TEXT,
+                    username TEXT,
+                    full_name TEXT,
+                    registered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            
+            # جدول آزمون‌ها
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS quizzes (
+                    id SERIAL PRIMARY KEY,
+                    title TEXT NOT NULL,
+                    description TEXT,
+                    time_limit INTEGER DEFAULT 60,
+                    is_active BOOLEAN DEFAULT FALSE,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            
+            # جدول سوالات
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS questions (
+                    id SERIAL PRIMARY KEY,
+                    quiz_id INTEGER REFERENCES quizzes(id) ON DELETE CASCADE,
+                    question_text TEXT,
+                    question_image TEXT,
+                    option1 TEXT,
+                    option2 TEXT,
+                    option3 TEXT,
+                    option4 TEXT,
+                    correct_answer INTEGER,
+                    points INTEGER DEFAULT 1,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            
+            # جدول نتایج
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS results (
+                    id SERIAL PRIMARY KEY,
+                    user_id BIGINT REFERENCES users(user_id) ON DELETE CASCADE,
+                    quiz_id INTEGER REFERENCES quizzes(id) ON DELETE CASCADE,
+                    score INTEGER DEFAULT 0,
+                    total_time INTEGER DEFAULT 0,
+                    completed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            
+            self.connection.commit()
+            logger.info("Database tables created successfully")
+            
         except Exception as e:
-            print(f"خطا در ذخیره داده‌ها: {e}")
-    
-    def is_advisor(self, user_id: int) -> bool:
-        """بررسی مشاور بودن کاربر"""
-        return user_id in ADVISORS
-    
+            logger.error(f"Database initialization error: {e}")
+            self.connection.rollback()
+
+    def execute_query(self, query: str, params: tuple = None):
+        """اجرای کوئری و بازگشت نتیجه"""
+        try:
+            cursor = self.connection.cursor()
+            cursor.execute(query, params or ())
+            
+            if query.strip().upper().startswith('SELECT'):
+                return cursor.fetchall()
+            else:
+                self.connection.commit()
+                return cursor.rowcount
+                
+        except Exception as e:
+            logger.error(f"Query execution error: {e}")
+            self.connection.rollback()
+            return None
+
+    def get_user(self, user_id: int):
+        """دریافت اطلاعات کاربر"""
+        return self.execute_query(
+            "SELECT * FROM users WHERE user_id = %s", 
+            (user_id,)
+        )
+
+    def add_user(self, user_id: int, phone_number: str, username: str, full_name: str):
+        """افزودن کاربر جدید"""
+        return self.execute_query('''
+            INSERT INTO users (user_id, phone_number, username, full_name) 
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT (user_id) DO UPDATE SET 
+            phone_number = EXCLUDED.phone_number,
+            username = EXCLUDED.username,
+            full_name = EXCLUDED.full_name
+        ''', (user_id, phone_number, username, full_name))
+
+    def get_active_quizzes(self):
+        """دریافت آزمون‌های فعال"""
+        return self.execute_query(
+            "SELECT id, title, description, time_limit FROM quizzes WHERE is_active = TRUE"
+        )
+
+    def get_quiz_questions(self, quiz_id: int):
+        """دریافت سوالات یک آزمون"""
+        return self.execute_query(
+            "SELECT id, question_text, question_image, option1, option2, option3, option4 FROM questions WHERE quiz_id = %s ORDER BY id",
+            (quiz_id,)
+        )
+
+    def get_correct_answer(self, question_id: int):
+        """دریافت پاسخ صحیح سوال"""
+        result = self.execute_query(
+            "SELECT correct_answer, points FROM questions WHERE id = %s",
+            (question_id,)
+        )
+        return result[0] if result else None
+
+    def save_result(self, user_id: int, quiz_id: int, score: int, total_time: int):
+        """ذخیره نتیجه آزمون"""
+        return self.execute_query('''
+            INSERT INTO results (user_id, quiz_id, score, total_time) 
+            VALUES (%s, %s, %s, %s)
+        ''', (user_id, quiz_id, score, total_time))
+
+    def get_leaderboard(self, limit: int = 10):
+        """دریافت جدول رتبه‌بندی"""
+        return self.execute_query('''
+            SELECT u.full_name, r.score, r.total_time, q.title
+            FROM results r
+            JOIN users u ON r.user_id = u.user_id
+            JOIN quizzes q ON r.quiz_id = q.id
+            ORDER BY r.score DESC, r.total_time ASC
+            LIMIT %s
+        ''', (limit,))
+
+    def create_quiz(self, title: str, description: str, time_limit: int):
+        """ایجاد آزمون جدید"""
+        result = self.execute_query('''
+            INSERT INTO quizzes (title, description, time_limit, is_active) 
+            VALUES (%s, %s, %s, TRUE) 
+            RETURNING id
+        ''', (title, description, time_limit))
+        return result[0][0] if result else None
+
+    def add_question(self, quiz_id: int, question_text: str, question_image: str, 
+                    option1: str, option2: str, option3: str, option4: str, correct_answer: int):
+        """افزودن سوال به آزمون"""
+        return self.execute_query('''
+            INSERT INTO questions 
+            (quiz_id, question_text, question_image, option1, option2, option3, option4, correct_answer)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        ''', (quiz_id, question_text, question_image, option1, option2, option3, option4, correct_answer))
+
+class QuizBot:
+    def __init__(self):
+        self.db = Database()
+        
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """شروع ربات"""
-        user_id = str(update.effective_user.id)
-        user_name = update.effective_user.first_name
+        """شروع ربات و دریافت شماره تلفن"""
+        user = update.effective_user
+        user_id = user.id
         
-        # ایجاد پروفایل کاربر
-        if user_id not in self.user_data:
-            self.user_data[user_id] = {
-                "current_day": 1,
-                "name": user_name,
-                "start_date": datetime.datetime.now().strftime("%Y-%m-%d"),
-                "total_days": 13,
-                "advisor_id": None
-            }
-            self.save_data()
+        # بررسی ثبت نام کاربر
+        user_data = self.db.get_user(user_id)
         
-        if self.is_advisor(int(user_id)):
-            keyboard = [
-                [InlineKeyboardButton("👥 مدیریت دانش‌آموزان", callback_data="manage_students")],
-                [InlineKeyboardButton("📤 ارسال برنامه جدید", callback_data="send_plan")],
-                [InlineKeyboardButton("✏️ ویرایش برنامه موجود", callback_data="edit_plan")],
-                [InlineKeyboardButton("📊 گزارش پیشرفت", callback_data="advisor_stats")]
-            ]
-            message = f"""
-🎓 *پنل مشاور*
-
-سلام {user_name} عزیز!
-به پنل مشاوران خوش آمدید.
-
-📋 از این پنل می‌توانید:
-├─ برنامه مطالعاتی جدید ارسال کنید
-├─ برنامه‌های موجود را ویرایش کنید
-├─ پیشرفت دانش‌آموزان را رصد کنید
-└─ گزارش‌های جامع دریافت کنید
-
-💡 *راهنما:*
-• /send_plan - ارسال برنامه جدید
-• /edit_plan - ویرایش برنامه
-• /view_students - لیست دانش‌آموزان
-• /student_stats [id] - آمار دانش‌آموز
-            """
+        if user_data:
+            await self.show_main_menu(update, context)
         else:
             keyboard = [
-                [InlineKeyboardButton("📅 برنامه امروز", callback_data="show_today")],
-                [InlineKeyboardButton("📊 پیشرفت من", callback_data="my_progress")],
-                [InlineKeyboardButton("📈 آمار کامل", callback_data="full_stats")],
-                [InlineKeyboardButton("⚙️ تنظیمات", callback_data="settings")]
+                [InlineKeyboardButton("📞 ارسال شماره تلفن", request_contact=True)]
             ]
-            message = f"""
-🎯 *ربات برنامه‌ریزی درسی*
-
-سلام {user_name} عزیز!
-به ربات مدیریت برنامه مطالعاتی خوش آمدید 🌟
-
-📚 *امکانات:*
-├─ 📅 مشاهده برنامه روزانه
-├─ ✅ چک کردن پارت‌های انجام شده
-├─ 📊 رصد پیشرفت لحظه‌ای
-├─ 📈 آمار و گزارش‌های تفصیلی
-└─ 🔔 یادآوری‌های هوشمند
-
-💡 *دستورات سریع:*
-• /today - برنامه امروز
-• /plan - کل برنامه ۱۳ روزه
-• /stats - آمار پیشرفت
-• /next - روز بعد
-• /prev - روز قبل
-
-✨ برای شروع، روی دکمه‌های زیر کلیک کنید!
-            """
+            reply_markup = ReplyKeyboardMarkup(
+                keyboard, 
+                resize_keyboard=True, 
+                one_time_keyboard=True
+            )
+            
+            await update.message.reply_text(
+                "👋 به ربات آزمون خوش آمدید!\n\n"
+                "برای استفاده از ربات، لطفاً شماره تلفن خود را ارسال کنید:",
+                reply_markup=reply_markup
+            )
+    
+    async def handle_contact(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """پردازش شماره تلفن دریافتی"""
+        contact = update.message.contact
+        user = update.effective_user
+        
+        if contact.user_id != user.id:
+            await update.message.reply_text("لطفاً شماره تلفن خودتان را ارسال کنید.")
+            return
+        
+        # ذخیره اطلاعات کاربر
+        self.db.add_user(
+            user.id, 
+            contact.phone_number, 
+            user.username, 
+            user.full_name
+        )
+        
+        # اطلاع به ادمین
+        admin_message = (
+            "👤 کاربر جدید ثبت نام کرد:\n"
+            f"🆔 آیدی: {user.id}\n"
+            f"📞 شماره: {contact.phone_number}\n"
+            f"👤 نام: {user.full_name}\n"
+            f"🔗 یوزرنیم: @{user.username if user.username else 'ندارد'}"
+        )
+        
+        try:
+            await context.bot.send_message(ADMIN_ID, admin_message)
+        except Exception as e:
+            logger.error(f"Error sending message to admin: {e}")
+        
+        await update.message.reply_text(
+            "✅ ثبت نام شما با موفقیت انجام شد!",
+            reply_markup=ReplyKeyboardRemove()
+        )
+        
+        await self.show_main_menu(update, context)
+    
+    async def show_main_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """نمایش منوی اصلی"""
+        keyboard = [
+            [InlineKeyboardButton("📝 شرکت در آزمون", callback_data="take_quiz")],
+            [InlineKeyboardButton("🏆 جدول رتبه‌بندی", callback_data="leaderboard")],
+            [InlineKeyboardButton("ℹ️ راهنما", callback_data="help")]
+        ]
+        
+        if update.effective_user.id == ADMIN_ID:
+            keyboard.append([InlineKeyboardButton("🔧 پنل ادمین", callback_data="admin_panel")])
         
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await update.message.reply_text(message, reply_markup=reply_markup, parse_mode='Markdown')
-    
-    # ==================== دستورات دانش‌آموز ====================
-    
-    async def show_today(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """نمایش برنامه امروز"""
-        user_id = str(update.effective_user.id)
         
-        if user_id not in self.plans or not self.plans[user_id]:
-            await self._send_message(update, "⚠️ هنوز برنامه‌ای برای شما ثبت نشده است.\nلطفاً از مشاور خود بخواهید برنامه را ارسال کند.")
-            return
-        
-        current_day = self.user_data[user_id]["current_day"]
-        day_key = f"day{current_day}"
-        
-        if day_key not in self.plans[user_id]:
-            await self._send_message(update, f"⚠️ برنامه روز {current_day} موجود نیست.")
-            return
-        
-        day_data = self.plans[user_id][day_key]
-        message = self._format_day_plan(day_data, current_day)
-        keyboard = self._create_day_keyboard(day_data["subjects"], current_day)
-        
-        await self._send_message(update, message, reply_markup=keyboard)
-    
-    async def show_plan(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """نمایش کل برنامه ۱۳ روزه"""
-        user_id = str(update.effective_user.id)
-        
-        if user_id not in self.plans or not self.plans[user_id]:
-            await self._send_message(update, "⚠️ هنوز برنامه‌ای برای شما ثبت نشده است.")
-            return
-        
-        total_days = self.user_data[user_id].get("total_days", 13)
-        message = "📚 *برنامه کامل ۱۳ روزه*\n\n"
-        
-        for day in range(1, total_days + 1):
-            day_key = f"day{day}"
-            if day_key in self.plans[user_id]:
-                day_data = self.plans[user_id][day_key]
-                completed = sum(1 for s in day_data["subjects"] if s.get("completed", False))
-                total = len(day_data["subjects"])
-                progress = int((completed / total) * 100) if total > 0 else 0
-                
-                status = "✅" if progress == 100 else "🔄" if progress > 0 else "⏳"
-                message += f"{status} *روز {day}:* {self._create_progress_bar(progress, 8)} {progress}%\n"
-                message += f"   📊 {completed}/{total} پارت انجام شده\n\n"
-        
-        keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data="show_today")]]
-        await self._send_message(update, message, reply_markup=InlineKeyboardMarkup(keyboard))
-    
-    async def show_stats(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """نمایش آمار کامل"""
-        user_id = str(update.effective_user.id)
-        
-        if user_id not in self.plans:
-            await self._send_message(update, "⚠️ هنوز برنامه‌ای ثبت نشده است.")
-            return
-        
-        stats = self._calculate_stats(user_id)
-        message = f"""
-📊 *آمار جامع مطالعاتی*
-
-━━━━━━━━━━━━━━━━━━━━
-📅 *اطلاعات کلی:*
-├─ روز جاری: {self.user_data[user_id]['current_day']}/{self.user_data[user_id].get('total_days', 13)}
-├─ روزهای گذشته: {stats['days_passed']}
-├─ روزهای باقی‌مانده: {stats['days_remaining']}
-└─ تاریخ شروع: {self.user_data[user_id]['start_date']}
-
-━━━━━━━━━━━━━━━━━━━━
-✅ *پیشرفت کلی:*
-{self._create_progress_bar(stats['total_progress'], 12)} {stats['total_progress']}%
-
-├─ پارت‌های انجام شده: {stats['completed_parts']}
-├─ پارت‌های باقی‌مانده: {stats['remaining_parts']}
-└─ کل پارت‌ها: {stats['total_parts']}
-
-━━━━━━━━━━━━━━━━━━━━
-📚 *آمار درسی:*
-{self._format_subject_stats(stats['subject_stats'])}
-
-━━━━━━━━━━━━━━━━━━━━
-⭐ *عملکرد روزانه:*
-├─ میانگین پیشرفت روزانه: {stats['daily_average']}%
-├─ بهترین روز: روز {stats['best_day']} ({stats['best_day_progress']}%)
-└─ روزهای کامل شده: {stats['completed_days']}
-
-━━━━━━━━━━━━━━━━━━━━
-💪 *انگیزه:*
-{self._get_motivation_message(stats['total_progress'])}
-        """
-        
-        keyboard = [
-            [InlineKeyboardButton("📈 نمودار پیشرفت", callback_data="show_chart")],
-            [InlineKeyboardButton("🔙 بازگشت", callback_data="show_today")]
-        ]
-        
-        await self._send_message(update, message, reply_markup=InlineKeyboardMarkup(keyboard))
-    
-    async def show_progress(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """نمایش پیشرفت لحظه‌ای"""
-        user_id = str(update.effective_user.id)
-        current_day = self.user_data[user_id]["current_day"]
-        day_key = f"day{current_day}"
-        
-        if user_id not in self.plans or day_key not in self.plans[user_id]:
-            await self._send_message(update, "⚠️ برنامه روز جاری موجود نیست.")
-            return
-        
-        day_data = self.plans[user_id][day_key]
-        completed = sum(1 for s in day_data["subjects"] if s.get("completed", False))
-        total = len(day_data["subjects"])
-        progress = int((completed / total) * 100) if total > 0 else 0
-        
-        message = f"""
-⚡ *پیشرفت لحظه‌ای - روز {current_day}*
-
-{self._create_progress_bar(progress, 15)} {progress}%
-
-✅ انجام شده: {completed}
-⏳ باقی‌مانده: {total - completed}
-📚 کل پارت‌ها: {total}
-
-━━━━━━━━━━━━━━━━━━━━
-📋 *وضعیت دروس:*
-
-"""
-        
-        for subject in day_data["subjects"]:
-            status = "✅" if subject.get("completed", False) else "◻️"
-            message += f"{status} {subject['name']} - {subject['type']}\n"
-        
-        message += f"\n🕐 آخرین بروزرسانی: {datetime.datetime.now().strftime('%H:%M')}"
-        
-        keyboard = [
-            [InlineKeyboardButton("🔄 بروزرسانی", callback_data="show_today")],
-            [InlineKeyboardButton("🔙 بازگشت", callback_data="show_today")]
-        ]
-        
-        await self._send_message(update, message, reply_markup=InlineKeyboardMarkup(keyboard))
-    
-    async def next_day(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """رفتن به روز بعد"""
-        user_id = str(update.effective_user.id)
-        current_day = self.user_data[user_id]["current_day"]
-        total_days = self.user_data[user_id].get("total_days", 13)
-        
-        if current_day < total_days:
-            self.user_data[user_id]["current_day"] = current_day + 1
-            self.save_data()
-            await self.show_today(update, context)
+        if update.callback_query:
+            await update.callback_query.edit_message_text(
+                "🎯 منوی اصلی:",
+                reply_markup=reply_markup
+            )
         else:
-            await self._send_message(update, "✅ شما در آخرین روز برنامه هستید!")
+            await update.message.reply_text(
+                "🎯 منوی اصلی:",
+                reply_markup=reply_markup
+            )
     
-    async def prev_day(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """برگشت به روز قبل"""
-        user_id = str(update.effective_user.id)
-        current_day = self.user_data[user_id]["current_day"]
-        
-        if current_day > 1:
-            self.user_data[user_id]["current_day"] = current_day - 1
-            self.save_data()
-            await self.show_today(update, context)
-        else:
-            await self._send_message(update, "⚠️ شما در اولین روز برنامه هستید!")
-    
-    async def reset_day(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """ریست کردن روز جاری"""
-        user_id = str(update.effective_user.id)
-        current_day = self.user_data[user_id]["current_day"]
-        day_key = f"day{current_day}"
-        
-        if user_id in self.plans and day_key in self.plans[user_id]:
-            for subject in self.plans[user_id][day_key]["subjects"]:
-                subject["completed"] = False
-            self.save_data()
-            await self._send_message(update, f"♻️ روز {current_day} ریست شد!")
-            await self.show_today(update, context)
-        else:
-            await self._send_message(update, "⚠️ برنامه روز جاری موجود نیست.")
-    
-    # ==================== دستورات مشاور ====================
-    
-    async def advisor_panel(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """پنل مشاور"""
-        user_id = update.effective_user.id
-        
-        if not self.is_advisor(user_id):
-            await update.message.reply_text("⛔ شما دسترسی به پنل مشاور ندارید.")
-            return
-        
-        keyboard = [
-            [InlineKeyboardButton("👥 لیست دانش‌آموزان", callback_data="list_students")],
-            [InlineKeyboardButton("📤 ارسال برنامه جدید", callback_data="send_new_plan")],
-            [InlineKeyboardButton("✏️ ویرایش برنامه", callback_data="edit_existing_plan")],
-            [InlineKeyboardButton("📊 گزارش‌های جامع", callback_data="comprehensive_reports")]
-        ]
-        
-        message = """
-🎓 *پنل مشاور*
-
-خوش آمدید! از اینجا می‌توانید:
-• برنامه مطالعاتی برای دانش‌آموزان ارسال کنید
-• برنامه‌های موجود را ویرایش کنید
-• پیشرفت دانش‌آموزان را رصد کنید
-• گزارش‌های تفصیلی دریافت کنید
-        """
-        
-        await update.message.reply_text(message, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
-    
-    async def send_plan_request(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """درخواست ارسال برنامه"""
-        user_id = update.effective_user.id
-        
-        if not self.is_advisor(user_id):
-            await update.message.reply_text("⛔ شما دسترسی به این بخش ندارید.")
-            return
-        
-        message = """
-📤 *ارسال برنامه جدید*
-
-لطفاً فایل Excel یا JSON برنامه را ارسال کنید.
-
-📋 *فرمت فایل Excel:*
-```
-روز | نام درس | نوع | مبحث
-1   | زیست۱۲  | مطالعه | نوکلئیک اسیدها
-1   | ریاضی۱۰ | تست | معادله درجه دوم
-...
-```
-
-یا برنامه را به صورت متنی با فرمت زیر بفرستید:
-```
-روز ۱:
-- زیست۱۲ / مطالعه / نوکلئیک اسیدها
-- ریاضی۱۰ / تست / معادله درجه دوم
-...
-```
-
-💡 همچنین می‌توانید آیدی دانش‌آموز را مشخص کنید:
-/send_plan [user_id]
-        """
-        
-        context.user_data["awaiting_plan"] = True
-        await update.message.reply_text(message, parse_mode='Markdown')
-    
-    async def view_students(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """مشاهده لیست دانش‌آموزان"""
-        user_id = update.effective_user.id
-        
-        if not self.is_advisor(user_id):
-            await update.message.reply_text("⛔ شما دسترسی به این بخش ندارید.")
-            return
-        
-        message = "👥 *لیست دانش‌آموزان*\n\n"
-        
-        for student_id, data in self.user_data.items():
-            if student_id not in ADVISORS:
-                name = data.get("name", "ناشناس")
-                current_day = data.get("current_day", 0)
-                
-                # محاسبه پیشرفت
-                if student_id in self.plans:
-                    stats = self._calculate_stats(student_id)
-                    progress = stats['total_progress']
-                else:
-                    progress = 0
-                
-                message += f"├─ 👤 {name} (ID: {student_id})\n"
-                message += f"│  └─ روز: {current_day} | پیشرفت: {progress}%\n\n"
-        
-        if len(message) == len("👥 *لیست دانش‌آموزان*\n\n"):
-            message += "هنوز دانش‌آموزی ثبت نشده است."
-        
-        await update.message.reply_text(message, parse_mode='Markdown')
-    
-    async def student_stats(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """آمار یک دانش‌آموز خاص"""
-        user_id = update.effective_user.id
-        
-        if not self.is_advisor(user_id):
-            await update.message.reply_text("⛔ شما دسترسی به این بخش ندارید.")
-            return
-        
-        if not context.args:
-            await update.message.reply_text("⚠️ لطفاً آیدی دانش‌آموز را وارد کنید:\n/student_stats [user_id]")
-            return
-        
-        student_id = context.args[0]
-        
-        if student_id not in self.user_data:
-            await update.message.reply_text("⚠️ دانش‌آموز یافت نشد!")
-            return
-        
-        stats = self._calculate_stats(student_id)
-        student_name = self.user_data[student_id].get("name", "ناشناس")
-        
-        message = f"""
-📊 *گزارش پیشرفت {student_name}*
-
-━━━━━━━━━━━━━━━━━━━━
-پیشرفت کلی: {stats['total_progress']}%
-{self._create_progress_bar(stats['total_progress'], 15)}
-
-✅ انجام شده: {stats['completed_parts']}/{stats['total_parts']}
-📅 روز جاری: {self.user_data[student_id]['current_day']}
-⭐ میانگین روزانه: {stats['daily_average']}%
-
-━━━━━━━━━━━━━━━━━━━━
-📚 آمار درسی:
-{self._format_subject_stats(stats['subject_stats'])}
-        """
-        
-        await update.message.reply_text(message, parse_mode='Markdown')
-    
-    # ==================== هندلرها ====================
-    
-    async def handle_document(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """هندلر دریافت فایل"""
-        user_id = update.effective_user.id
-        
-        if not self.is_advisor(user_id):
-            return
-        
-        if not context.user_data.get("awaiting_plan"):
-            return
-        
-        file = await context.bot.get_file(update.message.document.file_id)
-        file_path = f"temp_{user_id}.{update.message.document.file_name.split('.')[-1]}"
-        await file.download_to_drive(file_path)
-        
-        # پردازش فایل (اینجا باید پارسر فایل Excel یا JSON را پیاده کنید)
-        await update.message.reply_text("✅ فایل دریافت شد! در حال پردازش...")
-        
-        # اینجا منطق پارس فایل و ذخیره برنامه
-        context.user_data["awaiting_plan"] = False
-        await update.message.reply_text("✅ برنامه با موفقیت ثبت شد!")
-    
-    async def button_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """هندلر دکمه‌ها"""
+    async def handle_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """مدیریت کلیک روی دکمه‌ها"""
         query = update.callback_query
         await query.answer()
         
-        user_id = str(query.from_user.id)
         data = query.data
         
-        # تغییر وضعیت پارت
-        if data.startswith("toggle_"):
+        if data == "take_quiz":
+            await self.show_quiz_list(update, context)
+        elif data == "leaderboard":
+            await self.show_leaderboard(update, context)
+        elif data == "help":
+            await self.show_help(update, context)
+        elif data == "admin_panel":
+            await self.show_admin_panel(update, context)
+        elif data.startswith("quiz_"):
+            quiz_id = int(data.split("_")[1])
+            await self.start_quiz(update, context, quiz_id)
+        elif data.startswith("answer_"):
             parts = data.split("_")
-            day = int(parts[1])
-            index = int(parts[2])
-            day_key = f"day{day}"
-            
-            if user_id in self.plans and day_key in self.plans[user_id]:
-                current_status = self.plans[user_id][day_key]["subjects"][index].get("completed", False)
-                self.plans[user_id][day_key]["subjects"][index]["completed"] = not current_status
-                self.save_data()
-                await self.show_today(update, context)
-        
-        # ناوبری
-        elif data == "show_today":
-            await self.show_today(update, context)
-        elif data == "my_progress":
-            await self.show_progress(update, context)
-        elif data == "full_stats":
-            await self.show_stats(update, context)
-        elif data == "next_day":
-            await self.next_day(update, context)
-        elif data == "prev_day":
-            await self.prev_day(update, context)
-        
-        # مشاور
-        elif data == "list_students":
-            await self.view_students(update, context)
-        elif data == "send_new_plan":
-            await self.send_plan_request(update, context)
+            quiz_id = int(parts[1])
+            question_index = int(parts[2])
+            answer = int(parts[3])
+            await self.handle_answer(update, context, quiz_id, question_index, answer)
+        elif data == "main_menu":
+            await self.show_main_menu(update, context)
+        elif data == "admin_create_quiz":
+            await self.admin_create_quiz(update, context)
+        elif data == "admin_manage_quizzes":
+            await self.admin_manage_quizzes(update, context)
+        elif data == "admin_view_users":
+            await self.admin_view_users(update, context)
+        elif data == "confirm_add_questions":
+            await self.start_adding_questions(update, context)
+        elif data == "add_another_question":
+            await self.start_adding_questions(update, context)
+        elif data in ["add_option3", "skip_option3", "add_option4", "skip_option4"]:
+            await self.handle_option_decision(update, context, data)
     
-    async def handle_text(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """هندلر پیام‌های متنی برای دریافت برنامه"""
+    async def show_quiz_list(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """نمایش لیست آزمون‌های فعال"""
+        quizzes = self.db.get_active_quizzes()
+        
+        if not quizzes:
+            keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data="main_menu")]]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await update.callback_query.edit_message_text(
+                "⚠️ در حال حاضر هیچ آزمون فعالی وجود ندارد.",
+                reply_markup=reply_markup
+            )
+            return
+        
+        keyboard = []
+        for quiz in quizzes:
+            quiz_id, title, description, time_limit = quiz
+            button_text = f"⏱ {time_limit} دقیقه - {title}"
+            keyboard.append([InlineKeyboardButton(button_text, callback_data=f"quiz_{quiz_id}")])
+        
+        keyboard.append([InlineKeyboardButton("🔙 بازگشت", callback_data="main_menu")])
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        text = "📋 لیست آزمون‌های فعال:\n\n"
+        for quiz in quizzes:
+            quiz_id, title, description, time_limit = quiz
+            text += f"• {title}\n⏱ {time_limit} دقیقه\n📝 {description}\n\n"
+        
+        await update.callback_query.edit_message_text(
+            text,
+            reply_markup=reply_markup
+        )
+    
+    async def start_quiz(self, update: Update, context: ContextTypes.DEFAULT_TYPE, quiz_id: int):
+        """شروع آزمون"""
         user_id = update.effective_user.id
         
-        if not self.is_advisor(user_id) or not context.user_data.get("awaiting_plan"):
+        # دریافت اطلاعات آزمون
+        quizzes = self.db.execute_query(
+            "SELECT title, time_limit FROM quizzes WHERE id = %s", 
+            (quiz_id,)
+        )
+        
+        if not quizzes:
+            await update.callback_query.edit_message_text("آزمون یافت نشد!")
+            return
+        
+        title, time_limit = quizzes[0]
+        
+        # دریافت سوالات
+        questions = self.db.get_quiz_questions(quiz_id)
+        
+        if not questions:
+            await update.callback_query.edit_message_text("هیچ سوالی برای این آزمون تعریف نشده!")
+            return
+        
+        # ذخیره اطلاعات آزمون در context
+        context.user_data['current_quiz'] = {
+            'quiz_id': quiz_id,
+            'questions': questions,
+            'current_question': 0,
+            'answers': [],
+            'start_time': datetime.now(),
+            'time_limit': time_limit
+        }
+        
+        # شروع تایمر
+        context.job_queue.run_once(
+            self.quiz_timeout, 
+            time_limit * 60, 
+            user_id=user_id, 
+            data=quiz_id
+        )
+        
+        await self.show_question(update, context)
+    
+    async def show_question(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """نمایش سوال جاری"""
+        quiz_data = context.user_data['current_quiz']
+        current_index = quiz_data['current_question']
+        question = quiz_data['questions'][current_index]
+        
+        question_id, question_text, question_image, opt1, opt2, opt3, opt4 = question
+        
+        keyboard = [
+            [InlineKeyboardButton(f"1️⃣ {opt1}", callback_data=f"answer_{quiz_data['quiz_id']}_{current_index}_1")],
+            [InlineKeyboardButton(f"2️⃣ {opt2}", callback_data=f"answer_{quiz_data['quiz_id']}_{current_index}_2")],
+        ]
+        
+        if opt3:
+            keyboard.append([InlineKeyboardButton(f"3️⃣ {opt3}", callback_data=f"answer_{quiz_data['quiz_id']}_{current_index}_3")])
+        if opt4:
+            keyboard.append([InlineKeyboardButton(f"4️⃣ {opt4}", callback_data=f"answer_{quiz_data['quiz_id']}_{current_index}_4")])
+        
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        message_text = f"📝 سوال {current_index + 1}:\n\n{question_text}"
+        
+        try:
+            if question_image and os.path.exists(question_image):
+                with open(question_image, 'rb') as photo:
+                    if hasattr(update.callback_query, 'edit_message_media'):
+                        await update.callback_query.edit_message_media(
+                            media=InputMediaPhoto(photo, caption=message_text),
+                            reply_markup=reply_markup
+                        )
+                    else:
+                        await update.callback_query.message.reply_photo(
+                            photo=photo,
+                            caption=message_text,
+                            reply_markup=reply_markup
+                        )
+            else:
+                await update.callback_query.edit_message_text(
+                    message_text,
+                    reply_markup=reply_markup
+                )
+        except Exception as e:
+            logger.error(f"Error showing question: {e}")
+            await update.callback_query.message.reply_text(
+                message_text,
+                reply_markup=reply_markup
+            )
+    
+    async def handle_answer(self, update: Update, context: ContextTypes.DEFAULT_TYPE, 
+                          quiz_id: int, question_index: int, answer: int):
+        """پردازش پاسخ کاربر"""
+        quiz_data = context.user_data['current_quiz']
+        
+        # ذخیره پاسخ
+        quiz_data['answers'].append({
+            'question_index': question_index,
+            'answer': answer,
+            'time': datetime.now()
+        })
+        
+        # رفتن به سوال بعدی
+        quiz_data['current_question'] += 1
+        
+        if quiz_data['current_question'] < len(quiz_data['questions']):
+            await self.show_question(update, context)
+        else:
+            await self.finish_quiz(update, context)
+    
+    async def quiz_timeout(self, context: ContextTypes.DEFAULT_TYPE):
+        """اتمام زمان آزمون"""
+        job = context.job
+        user_id = job.user_id
+        
+        try:
+            if 'current_quiz' in context.user_data:
+                await context.bot.send_message(
+                    user_id,
+                    "⏰ زمان آزمون به پایان رسید!",
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("🔙 منوی اصلی", callback_data="main_menu")]
+                    ])
+                )
+                
+                await self.calculate_results(context, user_id, True)
+        except Exception as e:
+            logger.error(f"Error in quiz timeout: {e}")
+    
+    async def finish_quiz(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """پایان آزمون و محاسبه نتایج"""
+        user_id = update.effective_user.id
+        await self.calculate_results(context, user_id)
+        
+        # حذف job تایمر
+        current_jobs = context.job_queue.get_jobs_by_name(str(user_id))
+        for job in current_jobs:
+            job.schedule_removal()
+    
+    async def calculate_results(self, context: ContextTypes.DEFAULT_TYPE, user_id: int, timeout=False):
+        """محاسبه نتایج آزمون"""
+        if 'current_quiz' not in context.user_data:
+            return
+        
+        quiz_data = context.user_data['current_quiz']
+        quiz_id = quiz_data['quiz_id']
+        
+        # محاسبه امتیاز
+        score = 0
+        for answer_data in quiz_data['answers']:
+            question_index = answer_data['question_index']
+            user_answer = answer_data['answer']
+            
+            question_id = quiz_data['questions'][question_index][0]
+            correct_data = self.db.get_correct_answer(question_id)
+            
+            if correct_data and correct_data[0] == user_answer:
+                score += correct_data[1]
+        
+        # محاسبه زمان
+        total_time = (datetime.now() - quiz_data['start_time']).seconds
+        
+        # ذخیره نتیجه
+        self.db.save_result(user_id, quiz_id, score, total_time)
+        
+        # ارسال نتیجه به کاربر
+        quiz_info = self.db.execute_query(
+            "SELECT title FROM quizzes WHERE id = %s", 
+            (quiz_id,)
+        )
+        quiz_title = quiz_info[0][0] if quiz_info else "نامشخص"
+        
+        total_questions = len(quiz_data['questions'])
+        
+        result_text = (
+            "🎉 آزمون به پایان رسید!\n\n"
+            f"📚 آزمون: {quiz_title}\n"
+            f"✅ امتیاز شما: {score} از {total_questions}\n"
+            f"⏱ زمان صرف شده: {total_time // 60}:{total_time % 60:02d}\n"
+        )
+        
+        if timeout:
+            result_text += "\n⚠️ توجه: زمان آزمون به پایان رسید!"
+        
+        try:
+            await context.bot.send_message(
+                user_id,
+                result_text,
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🏆 مشاهده رتبه‌بندی", callback_data="leaderboard")],
+                    [InlineKeyboardButton("🔙 منوی اصلی", callback_data="main_menu")]
+                ])
+            )
+        except Exception as e:
+            logger.error(f"Error sending result: {e}")
+        
+        # پاک کردن داده‌های موقت
+        if 'current_quiz' in context.user_data:
+            del context.user_data['current_quiz']
+    
+    async def show_leaderboard(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """نمایش جدول رتبه‌بندی"""
+        top_results = self.db.get_leaderboard()
+        
+        text = "🏆 جدول رتبه‌بندی:\n\n"
+        
+        if not top_results:
+            text += "هنوز هیچ نتیجه‌ای ثبت نشده است."
+        else:
+            for i, (name, score, time, quiz_title) in enumerate(top_results, 1):
+                medal = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f"{i}."
+                time_str = f"{time // 60}:{time % 60:02d}"
+                text += f"{medal} {name}\n📊 {score} امتیاز | ⏱ {time_str} | 📚 {quiz_title}\n\n"
+        
+        keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data="main_menu")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await update.callback_query.edit_message_text(
+            text,
+            reply_markup=reply_markup
+        )
+    
+    async def show_help(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """نمایش راهنما"""
+        help_text = (
+            "📖 راهنمای ربات آزمون:\n\n"
+            "1. 📝 شرکت در آزمون: از بین آزمون‌های فعال یکی را انتخاب کنید\n"
+            "2. ⏱ زمان‌بندی: هر آزمون زمان محدودی دارد\n"
+            "3. 🏆 رتبه‌بندی: نتایج بر اساس امتیاز و زمان محاسبه می‌شود\n"
+            "4. 📞 پشتیبانی: برای مشکلات با ادمین تماس بگیرید\n\n"
+            "موفق باشید! 🎯"
+        )
+        
+        keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data="main_menu")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await update.callback_query.edit_message_text(
+            help_text,
+            reply_markup=reply_markup
+        )
+    
+    # بخش مدیریت ادمین
+    async def show_admin_panel(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """نمایش پنل ادمین"""
+        if update.effective_user.id != ADMIN_ID:
+            await update.callback_query.edit_message_text("دسترسی denied!")
+            return
+        
+        keyboard = [
+            [InlineKeyboardButton("➕ ایجاد آزمون جدید", callback_data="admin_create_quiz")],
+            [InlineKeyboardButton("📋 مدیریت آزمون‌ها", callback_data="admin_manage_quizzes")],
+            [InlineKeyboardButton("👥 مشاهده کاربران", callback_data="admin_view_users")],
+            [InlineKeyboardButton("🔙 منوی اصلی", callback_data="main_menu")]
+        ]
+        
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await update.callback_query.edit_message_text(
+            "🔧 پنل مدیریت ادمین:",
+            reply_markup=reply_markup
+        )
+    
+    async def admin_create_quiz(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """شروع فرآیند ایجاد آزمون جدید"""
+        if update.effective_user.id != ADMIN_ID:
+            return
+        
+        context.user_data['admin_action'] = 'creating_quiz'
+        context.user_data['quiz_data'] = {
+            'questions': [],
+            'current_step': 'title'
+        }
+        
+        await update.callback_query.edit_message_text(
+            "📝 ایجاد آزمون جدید:\n\nلطفاً عنوان آزمون را ارسال کنید:"
+        )
+    
+    async def admin_manage_quizzes(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """مدیریت آزمون‌ها"""
+        if update.effective_user.id != ADMIN_ID:
+            return
+        
+        quizzes = self.db.execute_query("SELECT id, title, is_active FROM quizzes ORDER BY created_at DESC")
+        
+        text = "📋 مدیریت آزمون‌ها:\n\n"
+        keyboard = []
+        
+        for quiz_id, title, is_active in quizzes:
+            status = "✅ فعال" if is_active else "❌ غیرفعال"
+            text += f"📌 {title} - {status}\n"
+            keyboard.append([InlineKeyboardButton(
+                f"{'❌' if is_active else '✅'} {title}", 
+                callback_data=f"toggle_quiz_{quiz_id}"
+            )])
+        
+        keyboard.append([InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")])
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await update.callback_query.edit_message_text(text, reply_markup=reply_markup)
+    
+    async def admin_view_users(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """مشاهده کاربران"""
+        if update.effective_user.id != ADMIN_ID:
+            return
+        
+        users = self.db.execute_query(
+            "SELECT user_id, full_name, username, phone_number, registered_at FROM users ORDER BY registered_at DESC LIMIT 50"
+        )
+        
+        text = "👥 کاربران ثبت‌نام شده:\n\n"
+        
+        for user_id, full_name, username, phone_number, registered_at in users:
+            text += f"👤 {full_name}\n"
+            text += f"📞 {phone_number}\n"
+            text += f"🔗 @{username if username else 'ندارد'}\n"
+            text += f"🆔 {user_id}\n"
+            text += f"📅 {registered_at.strftime('%Y-%m-%d %H:%M')}\n\n"
+        
+        keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await update.callback_query.edit_message_text(text, reply_markup=reply_markup)
+    
+    async def handle_admin_text(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """پردازش متن ارسالی توسط ادمین"""
+        if update.effective_user.id != ADMIN_ID:
             return
         
         text = update.message.text
         
-        # پارس متن و ساخت برنامه
-        # اینجا منطق پارس متن را پیاده کنید
+        if 'admin_action' not in context.user_data:
+            return
         
-        await update.message.reply_text("✅ برنامه دریافت شد و در حال پردازش است...")
+        action = context.user_data['admin_action']
+        
+        if action == 'creating_quiz':
+            await self.handle_quiz_creation(update, context, text)
+        elif action == 'adding_question':
+            await self.handle_question_creation(update, context, text)
     
-    # ==================== توابع کمکی ====================
+    async def handle_admin_photo(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """پردازش عکس ارسالی توسط ادمین برای سوال"""
+        if update.effective_user.id != ADMIN_ID:
+            return
+        
+        if context.user_data.get('admin_action') != 'adding_question':
+            await update.message.reply_text("لطفاً ابتدا متن سوال را ارسال کنید.")
+            return
+        
+        # دریافت عکس
+        photo = update.message.photo[-1]
+        file = await photo.get_file()
+        
+        # ذخیره عکس
+        file_id = photo.file_id
+        file_path = f"{PHOTOS_DIR}/{file_id}.jpg"
+        await file.download_to_drive(file_path)
+        
+        # ذخیره مسیر عکس
+        context.user_data['current_question']['image'] = file_path
+        
+        await update.message.reply_text(
+            "✅ عکس سوال ذخیره شد!\n\n"
+            "لطفاً گزینه اول را ارسال کنید:"
+        )
+        
+        context.user_data['current_step'] = 'option1'
     
-    def _format_day_plan(self, day_data: Dict, day_number: int) -> str:
-        """فرمت کردن برنامه روزانه"""
-        subjects_text = ""
-        for i, subject in enumerate(day_data["subjects"]):
-            status = "✅" if subject.get("completed", False) else "◻️"
-            subjects_text += f"{status} *{subject['name']}* - {subject['type']}\n"
-            subjects_text += f"   📖 {subject['topic']}\n\n"
+    async def handle_quiz_creation(self, update: Update, context: ContextTypes.DEFAULT_TYPE, text: str):
+        """مدیریت مراحل ایجاد آزمون"""
+        quiz_data = context.user_data['quiz_data']
+        current_step = quiz_data['current_step']
         
-        completed = sum(1 for s in day_data["subjects"] if s.get("completed", False))
-        total = len(day_data["subjects"])
-        progress = int((completed / total) * 100) if total > 0 else 0
+        if current_step == 'title':
+            quiz_data['title'] = text
+            quiz_data['current_step'] = 'description'
+            await update.message.reply_text("لطفاً توضیحات آزمون را ارسال کنید:")
         
-        return f"""
-🎯 *برنامه روز {day_number}*
-
-━━━━━━━━━━━━━━━━━━━━
-📚 *درس‌های امروز:*
-
-{subjects_text}
-━━━━━━━━━━━━━━━━━━━━
-📊 *پیشرفت روز:*
-{self._create_progress_bar(progress)} {progress}%
-
-✅ انجام شده: {completed}/{total}
-⏳ باقی‌مانده: {total - completed}
-
-🕐 {datetime.datetime.now().strftime('%Y/%m/%d - %H:%M')}
-        """
-    
-    def _create_day_keyboard(self, subjects: List[Dict], day_number: int):
-        """ساخت کیبورد برای روز"""
-        keyboard = []
+        elif current_step == 'description':
+            quiz_data['description'] = text
+            quiz_data['current_step'] = 'time_limit'
+            await update.message.reply_text("لطفاً زمان آزمون را به دقیقه ارسال کنید:")
         
-        for i, subject in enumerate(subjects):
-            status = "✅" if subject.get("completed", False) else "◻️"
-            keyboard.append([
-                InlineKeyboardButton(
-                    f"{status} {subject['name']} - {subject['type']}",
-                    callback_data=f"toggle_{day_number}_{i}"
+        elif current_step == 'time_limit':
+            try:
+                time_limit = int(text)
+                quiz_data['time_limit'] = time_limit
+                quiz_data['current_step'] = 'add_questions'
+                
+                keyboard = [
+                    [InlineKeyboardButton("✅ بله", callback_data="confirm_add_questions")],
+                    [InlineKeyboardButton("❌ خیر", callback_data="admin_panel")]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                
+                await update.message.reply_text(
+                    f"📋 اطلاعات آزمون:\n\n"
+                    f"📌 عنوان: {quiz_data['title']}\n"
+                    f"📝 توضیحات: {quiz_data['description']}\n"
+                    f"⏱ زمان: {time_limit} دقیقه\n\n"
+                    "آیا می‌خواهید سوالات را اضافه کنید؟",
+                    reply_markup=reply_markup
                 )
-            ])
-        
-        keyboard.extend([
-            [
-                InlineKeyboardButton("⬅️ روز قبل", callback_data="prev_day"),
-                InlineKeyboardButton("روز بعد ➡️", callback_data="next_day")
-            ],
-            [
-                InlineKeyboardButton("📊 پیشرفت", callback_data="my_progress"),
-                InlineKeyboardButton("📈 آمار", callback_data="full_stats")
-            ],
-            [InlineKeyboardButton("♻️ ریست روز", callback_data="reset_day")]
-        ])
-        
-        return InlineKeyboardMarkup(keyboard)
-    
-    def _calculate_stats(self, user_id: str) -> Dict:
-        """محاسبه آمار کامل"""
-        if user_id not in self.plans:
-            return {
-                'total_progress': 0,
-                'completed_parts': 0,
-                'remaining_parts': 0,
-                'total_parts': 0,
-                'days_passed': 0,
-                'days_remaining': 0,
-                'subject_stats': {},
-                'daily_average': 0,
-                'best_day': 0,
-                'best_day_progress': 0,
-                'completed_days': 0
-            }
-        
-        total_completed = 0
-        total_parts = 0
-        subject_stats = {}
-        day_progress = {}
-        completed_days = 0
-        
-        for day_key, day_data in self.plans[user_id].items():
-            day_num = int(day_key.replace("day", ""))
-            day_completed = 0
-            day_total = len(day_data["subjects"])
             
-            for subject in day_data["subjects"]:
-                total_parts += 1
-                subject_name = subject["name"]
-                
-                if subject_name not in subject_stats:
-                    subject_stats[subject_name] = {"completed": 0, "total": 0}
-                
-                subject_stats[subject_name]["total"] += 1
-                
-                if subject.get("completed", False):
-                    total_completed += 1
-                    subject_stats[subject_name]["completed"] += 1
-                    day_completed += 1
-            
-            day_progress[day_num] = int((day_completed / day_total) * 100) if day_total > 0 else 0
-            if day_progress[day_num] == 100:
-                completed_days += 1
+            except ValueError:
+                await update.message.reply_text("لطفاً یک عدد معتبر وارد کنید:")
+    
+    async def start_adding_questions(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """شروع افزودن سوالات"""
+        context.user_data['admin_action'] = 'adding_question'
+        context.user_data['current_question'] = {}
+        context.user_data['current_step'] = 'question_text'
         
-        best_day = max(day_progress.items(), key=lambda x: x[1]) if day_progress else (0, 0)
-        current_day = self.user_data[user_id]["current_day"]
-        total_days = self.user_data[user_id].get("total_days", 13)
+        await update.callback_query.edit_message_text(
+            "📝 افزودن سوال جدید:\n\nلطفاً متن سوال را ارسال کنید\n"
+            "یا می‌توانید یک عکس به عنوان سوال ارسال کنید:"
+        )
+    
+    async def handle_question_creation(self, update: Update, context: ContextTypes.DEFAULT_TYPE, text: str):
+        """مدیریت مراحل ایجاد سوال"""
+        current_question = context.user_data['current_question']
+        current_step = context.user_data['current_step']
         
-        return {
-            'total_progress': int((total_completed / total_parts) * 100) if total_parts > 0 else 0,
-            'completed_parts': total_completed,
-            'remaining_parts': total_parts - total_completed,
-            'total_parts': total_parts,
-            'days_passed': current_day - 1,
-            'days_remaining': total_days - current_day + 1,
-            'subject_stats': subject_stats,
-            'daily_average': int(sum(day_progress.values()) / len(day_progress)) if day_progress else 0,
-            'best_day': best_day[0],
-            'best_day_progress': best_day[1],
-            'completed_days': completed_days
-        }
-    
-    def _format_subject_stats(self, subject_stats: Dict) -> str:
-        """فرمت آمار دروس"""
-        text = ""
-        for subject, stats in sorted(subject_stats.items()):
-            completed = stats["completed"]
-            total = stats["total"]
-            progress = int((completed / total) * 100) if total > 0 else 0
-            text += f"├─ *{subject}:* {self._create_progress_bar(progress, 8)} {progress}%\n"
-            text += f"│  └─ {completed}/{total} پارت\n"
-        return text if text else "├─ هنوز آماری موجود نیست"
-    
-    def _create_progress_bar(self, progress: int, length: int = 10) -> str:
-        """ساخت نوار پیشرفت"""
-        filled = int(progress / 100 * length)
-        empty = length - filled
-        return f"│{'█' * filled}{'░' * empty}│"
-    
-    def _get_motivation_message(self, progress: int) -> str:
-        """پیام انگیزشی بر اساس پیشرفت"""
-        if progress >= 90:
-            return "🌟 عالی! تقریباً تمام شده! ادامه بده!"
-        elif progress >= 70:
-            return "💪 خیلی خوب پیش میری! همینطور ادامه بده!"
-        elif progress >= 50:
-            return "👍 نصف راه رو رد کردی! تلاش کن!"
-        elif progress >= 30:
-            return "🚀 شروع خوبی داشتی! ادامه بده!"
-        elif progress >= 10:
-            return "🎯 داری شروع می‌کنی! تمرکز کن!"
-        else:
-            return "💡 بیا شروع کنیم! راه خیلی طولانی نیست!"
-    
-    async def _send_message(self, update: Update, text: str, reply_markup=None):
-        """ارسال پیام (مدیریت هم message و هم callback)"""
-        try:
-            if update.message:
-                await update.message.reply_text(text, reply_markup=reply_markup, parse_mode='Markdown')
-            elif update.callback_query:
-                await update.callback_query.edit_message_text(text, reply_markup=reply_markup, parse_mode='Markdown')
-        except Exception as e:
-            print(f"خطا در ارسال پیام: {e}")
-    
-    def parse_text_plan(self, text: str, user_id: str) -> bool:
-        """پارس برنامه متنی"""
-        try:
-            lines = text.strip().split('\n')
-            current_day = None
-            self.plans[user_id] = {}
-            
-            for line in lines:
-                line = line.strip()
-                if not line:
-                    continue
-                
-                # تشخیص روز
-                if line.startswith('روز'):
-                    day_num = int(line.split()[1].replace(':', ''))
-                    current_day = f"day{day_num}"
-                    self.plans[user_id][current_day] = {"subjects": []}
-                
-                # تشخیص درس
-                elif line.startswith('-') and current_day:
-                    parts = line[1:].split('/')
-                    if len(parts) == 3:
-                        subject = {
-                            "name": parts[0].strip(),
-                            "type": parts[1].strip(),
-                            "topic": parts[2].strip(),
-                            "completed": False
-                        }
-                        self.plans[user_id][current_day]["subjects"].append(subject)
-            
-            self.save_data()
-            return True
+        if current_step == 'question_text':
+            current_question['text'] = text
+            context.user_data['current_step'] = 'option1'
+            await update.message.reply_text("لطفاً گزینه اول را ارسال کنید:")
         
-        except Exception as e:
-            print(f"خطا در پارس برنامه: {e}")
-            return False
+        elif current_step == 'option1':
+            current_question['option1'] = text
+            context.user_data['current_step'] = 'option2'
+            await update.message.reply_text("لطفاً گزینه دوم را ارسال کنید:")
+        
+        elif current_step == 'option2':
+            current_question['option2'] = text
+            context.user_data['current_step'] = 'option3'
+            
+            keyboard = [
+                [InlineKeyboardButton("✅ بله", callback_data="add_option3")],
+                [InlineKeyboardButton("❌ خیر", callback_data="skip_option3")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await update.message.reply_text(
+                "آیا می‌خواهید گزینه سوم اضافه کنید؟",
+                reply_markup=reply_markup
+            )
+    
+    async def handle_option_decision(self, update: Update, context: ContextTypes.DEFAULT_TYPE, decision: str):
+        """مدیریت تصمیم برای افزودن گزینه‌های بیشتر"""
+        if decision == "add_option3":
+            context.user_data['current_step'] = 'option3'
+            await update.callback_query.edit_message_text("لطفاً گزینه سوم را ارسال کنید:")
+        elif decision == "skip_option3":
+            context.user_data['current_step'] = 'option4'
+            keyboard = [
+                [InlineKeyboardButton("✅ بله", callback_data="add_option4")],
+                [InlineKeyboardButton("❌ خیر", callback_data="skip_option4")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await update.callback_query.edit_message_text(
+                "آیا می‌خواهید گزینه چهارم اضافه کنید؟",
+                reply_markup=reply_markup
+            )
+        elif decision == "add_option4":
+            context.user_data['current_step'] = 'option4'
+            await update.callback_query.edit_message_text("لطفاً گزینه چهارم را ارسال کنید:")
+        elif decision == "skip_option4":
+            await self.ask_correct_answer(update, context)
+    
+    async def ask_correct_answer(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """درخواست شماره گزینه صحیح"""
+        current_question = context.user_data['current_question']
+        
+        options_text = ""
+        for i in range(1, 5):
+            if f'option{i}' in current_question:
+                options_text += f"{i}. {current_question[f'option{i}']}\n"
+        
+        context.user_data['current_step'] = 'correct_answer'
+        
+        await update.callback_query.edit_message_text(
+            f"📋 گزینه‌ها:\n\n{options_text}\n"
+            "لطفاً شماره گزینه صحیح را وارد کنید (1-4):"
+        )
+    
+    async def save_question(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """ذخیره سوال در دیتابیس"""
+        quiz_data = context.user_data['quiz_data']
+        current_question = context.user_data['current_question']
+        
+        # ذخیره آزمون اگر هنوز ذخیره نشده
+        if 'quiz_id' not in quiz_data:
+            quiz_id = self.db.create_quiz(
+                quiz_data['title'],
+                quiz_data['description'],
+                quiz_data['time_limit']
+            )
+            quiz_data['quiz_id'] = quiz_id
+        
+        # ذخیره سوال
+        self.db.add_question(
+            quiz_data['quiz_id'],
+            current_question.get('text', ''),
+            current_question.get('image', ''),
+            current_question.get('option1', ''),
+            current_question.get('option2', ''),
+            current_question.get('option3', ''),
+            current_question.get('option4', ''),
+            current_question.get('correct_answer', 1)
+        )
+        
+        keyboard = [
+            [InlineKeyboardButton("➕ سوال دیگر", callback_data="add_another_question")],
+            [InlineKeyboardButton("🏁 پایان", callback_data="admin_panel")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await update.message.reply_text(
+            "✅ سوال با موفقیت ذخیره شد!",
+            reply_markup=reply_markup
+        )
     
     def run(self):
         """اجرای ربات"""
-        print("🤖 ربات در حال اجرا...")
-        self.application.run_polling()
-
-# ==================== اجرای ربات ====================
+        application = Application.builder().token(BOT_TOKEN).build()
+        
+        # handlers
+        application.add_handler(CommandHandler("start", self.start))
+        application.add_handler(MessageHandler(filters.CONTACT, self.handle_contact))
+        application.add_handler(CallbackQueryHandler(self.handle_callback))
+        
+        # handlers ادمین
+        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_admin_text))
+        application.add_handler(MessageHandler(filters.PHOTO, self.handle_admin_photo))
+        
+        # اجرای ربات
+        application.run_polling()
 
 if __name__ == "__main__":
-    # توکن ربات خود را اینجا قرار دهید
-    TOKEN = "7584437136:AAFVtfF9RjCyteONcz8DSg2F2CfhgQT2GcQ"
-    
-    # آیدی‌های مشاوران را اینجا اضافه کنید
-    ADVISORS = [6680287530]  # جایگزین با آیدی‌های واقعی
-    
-    # ساخت و اجرای ربات
-    bot = StudyPlanBot(TOKEN)
+    bot = QuizBot()
     bot.run()
