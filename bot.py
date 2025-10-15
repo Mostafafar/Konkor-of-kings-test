@@ -819,17 +819,16 @@ class QuizBot:
             except ValueError:
                 await update.message.reply_text("لطفاً یک عدد معتبر وارد کنید:")
     
-    async def start_adding_questions(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """شروع افزودن سوالات"""
-        context.user_data['admin_action'] = 'adding_question'
-        context.user_data['current_question'] = {}
-        context.user_data['current_step'] = 'question_text'
-        
-        await update.callback_query.edit_message_text(
-            "📝 افزودن سوال جدید:\n\nلطفاً متن سوال را ارسال کنید\n"
-            "یا می‌توانید یک عکس به عنوان سوال ارسال کنید:"
-        )
+async def start_adding_questions(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """شروع افزودن سوالات (همه ۴ گزینه‌ای)"""
+    context.user_data['admin_action'] = 'adding_question'
+    context.user_data['current_question'] = {}
+    context.user_data['current_step'] = 'question_text'
     
+    await update.callback_query.edit_message_text(
+        "📝 افزودن سوال جدید (۴ گزینه‌ای):\n\nلطفاً متن سوال را ارسال کنید\n"
+        "یا می‌توانید یک عکس به عنوان سوال ارسال کنید:"
+    )
     async def handle_question_creation(self, update: Update, context: ContextTypes.DEFAULT_TYPE, text: str):
         """مدیریت مراحل ایجاد سوال"""
         current_question = context.user_data['current_question']
