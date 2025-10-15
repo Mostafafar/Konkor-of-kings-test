@@ -27,7 +27,7 @@ from telegram.constants import ParseMode
 DB_CONFIG = {
     'dbname': 'quiz_bot_db',
     'user': 'postgres',
-    'password': 'your_password',
+    'password': 'f13821382',
     'host': 'localhost',
     'port': '5432'
 }
