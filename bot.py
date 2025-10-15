@@ -219,6 +219,7 @@ class Database:
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
         ''', (quiz_id, question_text, question_image, option1, option2, option3, option4, correct_answer))
 
+
 class QuizBot:
     def __init__(self):
         self.db = Database()
@@ -341,12 +342,12 @@ class QuizBot:
             await self.admin_manage_quizzes(update, context)
         elif data == "admin_view_users":
             await self.admin_view_users(update, context)
+        elif data == "admin_view_results":
+            await self.admin_view_results(update, context)
         elif data == "confirm_add_questions":
             await self.start_adding_questions(update, context)
         elif data == "add_another_question":
             await self.start_adding_questions(update, context)
-        elif data in ["add_option3", "skip_option3", "add_option4", "skip_option4"]:
-            await self.handle_option_decision(update, context, data)
     
     async def show_quiz_list(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """نمایش لیست آزمون‌های فعال"""
@@ -424,7 +425,7 @@ class QuizBot:
         await self.show_question(update, context)
     
     async def show_question(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """نمایش سوال جاری"""
+        """نمایش سوال جاری (همیشه ۴ گزینه)"""
         quiz_data = context.user_data['current_quiz']
         current_index = quiz_data['current_question']
         question = quiz_data['questions'][current_index]
@@ -434,12 +435,9 @@ class QuizBot:
         keyboard = [
             [InlineKeyboardButton(f"1️⃣ {opt1}", callback_data=f"answer_{quiz_data['quiz_id']}_{current_index}_1")],
             [InlineKeyboardButton(f"2️⃣ {opt2}", callback_data=f"answer_{quiz_data['quiz_id']}_{current_index}_2")],
+            [InlineKeyboardButton(f"3️⃣ {opt3}", callback_data=f"answer_{quiz_data['quiz_id']}_{current_index}_3")],
+            [InlineKeyboardButton(f"4️⃣ {opt4}", callback_data=f"answer_{quiz_data['quiz_id']}_{current_index}_4")]
         ]
-        
-        if opt3:
-            keyboard.append([InlineKeyboardButton(f"3️⃣ {opt3}", callback_data=f"answer_{quiz_data['quiz_id']}_{current_index}_3")])
-        if opt4:
-            keyboard.append([InlineKeyboardButton(f"4️⃣ {opt4}", callback_data=f"answer_{quiz_data['quiz_id']}_{current_index}_4")])
         
         reply_markup = InlineKeyboardMarkup(keyboard)
         
@@ -750,7 +748,19 @@ class QuizBot:
         if action == 'creating_quiz':
             await self.handle_quiz_creation(update, context, text)
         elif action == 'adding_question':
-            await self.handle_question_creation(update, context, text)
+            if context.user_data.get('current_step') == 'correct_answer':
+                # پردازش پاسخ صحیح
+                try:
+                    correct_answer = int(text)
+                    if 1 <= correct_answer <= 4:
+                        context.user_data['current_question']['correct_answer'] = correct_answer
+                        await self.save_question(update, context)
+                    else:
+                        await update.message.reply_text("لطفاً عددی بین 1 تا 4 وارد کنید:")
+                except ValueError:
+                    await update.message.reply_text("لطفاً یک عدد معتبر وارد کنید:")
+            else:
+                await self.handle_question_creation(update, context, text)
     
     async def handle_admin_photo(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """پردازش عکس ارسالی توسط ادمین برای سوال"""
@@ -819,18 +829,19 @@ class QuizBot:
             except ValueError:
                 await update.message.reply_text("لطفاً یک عدد معتبر وارد کنید:")
     
-async def start_adding_questions(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """شروع افزودن سوالات (همه ۴ گزینه‌ای)"""
-    context.user_data['admin_action'] = 'adding_question'
-    context.user_data['current_question'] = {}
-    context.user_data['current_step'] = 'question_text'
+    async def start_adding_questions(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """شروع افزودن سوالات (همه ۴ گزینه‌ای)"""
+        context.user_data['admin_action'] = 'adding_question'
+        context.user_data['current_question'] = {}
+        context.user_data['current_step'] = 'question_text'
+        
+        await update.callback_query.edit_message_text(
+            "📝 افزودن سوال جدید (۴ گزینه‌ای):\n\nلطفاً متن سوال را ارسال کنید\n"
+            "یا می‌توانید یک عکس به عنوان سوال ارسال کنید:"
+        )
     
-    await update.callback_query.edit_message_text(
-        "📝 افزودن سوال جدید (۴ گزینه‌ای):\n\nلطفاً متن سوال را ارسال کنید\n"
-        "یا می‌توانید یک عکس به عنوان سوال ارسال کنید:"
-    )
     async def handle_question_creation(self, update: Update, context: ContextTypes.DEFAULT_TYPE, text: str):
-        """مدیریت مراحل ایجاد سوال"""
+        """مدیریت مراحل ایجاد سوال (۴ گزینه‌ای)"""
         current_question = context.user_data['current_question']
         current_step = context.user_data['current_step']
         
@@ -847,55 +858,37 @@ async def start_adding_questions(self, update: Update, context: ContextTypes.DEF
         elif current_step == 'option2':
             current_question['option2'] = text
             context.user_data['current_step'] = 'option3'
-            
-            keyboard = [
-                [InlineKeyboardButton("✅ بله", callback_data="add_option3")],
-                [InlineKeyboardButton("❌ خیر", callback_data="skip_option3")]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            
-            await update.message.reply_text(
-                "آیا می‌خواهید گزینه سوم اضافه کنید؟",
-                reply_markup=reply_markup
-            )
-    
-    async def handle_option_decision(self, update: Update, context: ContextTypes.DEFAULT_TYPE, decision: str):
-        """مدیریت تصمیم برای افزودن گزینه‌های بیشتر"""
-        if decision == "add_option3":
-            context.user_data['current_step'] = 'option3'
-            await update.callback_query.edit_message_text("لطفاً گزینه سوم را ارسال کنید:")
-        elif decision == "skip_option3":
+            await update.message.reply_text("لطفاً گزینه سوم را ارسال کنید:")
+        
+        elif current_step == 'option3':
+            current_question['option3'] = text
             context.user_data['current_step'] = 'option4'
-            keyboard = [
-                [InlineKeyboardButton("✅ بله", callback_data="add_option4")],
-                [InlineKeyboardButton("❌ خیر", callback_data="skip_option4")]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            await update.callback_query.edit_message_text(
-                "آیا می‌خواهید گزینه چهارم اضافه کنید؟",
-                reply_markup=reply_markup
-            )
-        elif decision == "add_option4":
-            context.user_data['current_step'] = 'option4'
-            await update.callback_query.edit_message_text("لطفاً گزینه چهارم را ارسال کنید:")
-        elif decision == "skip_option4":
+            await update.message.reply_text("لطفاً گزینه چهارم را ارسال کنید:")
+        
+        elif current_step == 'option4':
+            current_question['option4'] = text
             await self.ask_correct_answer(update, context)
     
     async def ask_correct_answer(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """درخواست شماره گزینه صحیح"""
+        """درخواست شماره گزینه صحیح برای سوال ۴ گزینه‌ای"""
         current_question = context.user_data['current_question']
         
-        options_text = ""
+        options_text = "📋 گزینه‌ها:\n\n"
         for i in range(1, 5):
-            if f'option{i}' in current_question:
-                options_text += f"{i}. {current_question[f'option{i}']}\n"
+            options_text += f"{i}. {current_question[f'option{i}']}\n"
         
         context.user_data['current_step'] = 'correct_answer'
         
-        await update.callback_query.edit_message_text(
-            f"📋 گزینه‌ها:\n\n{options_text}\n"
-            "لطفاً شماره گزینه صحیح را وارد کنید (1-4):"
-        )
+        if update.callback_query:
+            await update.callback_query.edit_message_text(
+                f"{options_text}\n"
+                "لطفاً شماره گزینه صحیح را وارد کنید (1-4):"
+            )
+        else:
+            await update.message.reply_text(
+                f"{options_text}\n"
+                "لطفاً شماره گزینه صحیح را وارد کنید (1-4):"
+            )
     
     async def save_question(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """ذخیره سوال در دیتابیس"""
@@ -949,6 +942,7 @@ async def start_adding_questions(self, update: Update, context: ContextTypes.DEF
         
         # اجرای ربات
         application.run_polling()
+
 
 if __name__ == "__main__":
     bot = QuizBot()
