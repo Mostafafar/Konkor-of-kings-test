@@ -164,11 +164,11 @@ class Database:
             full_name = EXCLUDED.full_name
         ''', (user_id, phone_number, username, full_name))
 
-def get_active_quizzes(self):
-    """دریافت آزمون‌های فعال"""
-    return self.execute_query(
-        "SELECT id, title, description, time_limit FROM quizzes WHERE is_active = TRUE ORDER BY id"
-    )
+    def get_active_quizzes(self):
+        """دریافت آزمون‌های فعال"""
+        return self.execute_query(
+            "SELECT id, title, description, time_limit FROM quizzes WHERE is_active = TRUE ORDER BY id"
+        )
 
     def get_quiz_questions(self, quiz_id: int):
         """دریافت سوالات یک آزمون"""
@@ -354,97 +354,96 @@ class QuizBot:
         elif data == "add_another_question":
             await self.start_adding_questions(update, context)
         elif data.startswith("toggle_quiz_"):
-           quiz_id = int(data.split("_")[2])
-           await self.toggle_quiz_status(update, context, quiz_id)
+            quiz_id = int(data.split("_")[2])
+            await self.toggle_quiz_status(update, context, quiz_id)
     
     async def show_quiz_list(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """نمایش لیست آزمون‌های فعال"""
-    # فقط آزمون‌های فعال را دریافت کن
-    quizzes = self.db.execute_query(
-        "SELECT id, title, description, time_limit FROM quizzes WHERE is_active = TRUE ORDER BY id"
-    )
-    
-    if not quizzes:
-        keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data="main_menu")]]
+        """نمایش لیست آزمون‌های فعال"""
+        # فقط آزمون‌های فعال را دریافت کن
+        quizzes = self.db.execute_query(
+            "SELECT id, title, description, time_limit FROM quizzes WHERE is_active = TRUE ORDER BY id"
+        )
+        
+        if not quizzes:
+            keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data="main_menu")]]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await update.callback_query.edit_message_text(
+                "⚠️ در حال حاضر هیچ آزمون فعالی وجود ندارد.",
+                reply_markup=reply_markup
+            )
+            return
+        
+        keyboard = []
+        for quiz in quizzes:
+            quiz_id, title, description, time_limit = quiz
+            button_text = f"⏱ {time_limit} دقیقه - {title}"
+            keyboard.append([InlineKeyboardButton(button_text, callback_data=f"quiz_{quiz_id}")])
+        
+        keyboard.append([InlineKeyboardButton("🔙 بازگشت", callback_data="main_menu")])
         reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        text = "📋 لیست آزمون‌های فعال:\n\n"
+        for quiz in quizzes:
+            quiz_id, title, description, time_limit = quiz
+            text += f"• {title}\n⏱ {time_limit} دقیقه\n📝 {description}\n\n"
+        
         await update.callback_query.edit_message_text(
-            "⚠️ در حال حاضر هیچ آزمون فعالی وجود ندارد.",
+            text,
             reply_markup=reply_markup
         )
-        return
-    
-    keyboard = []
-    for quiz in quizzes:
-        quiz_id, title, description, time_limit = quiz
-        button_text = f"⏱ {time_limit} دقیقه - {title}"
-        keyboard.append([InlineKeyboardButton(button_text, callback_data=f"quiz_{quiz_id}")])
-    
-    keyboard.append([InlineKeyboardButton("🔙 بازگشت", callback_data="main_menu")])
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    text = "📋 لیست آزمون‌های فعال:\n\n"
-    for quiz in quizzes:
-        quiz_id, title, description, time_limit = quiz
-        text += f"• {title}\n⏱ {time_limit} دقیقه\n📝 {description}\n\n"
-    
-    await update.callback_query.edit_message_text(
-        text,
-        reply_markup=reply_markup
-            )
-
     
     async def start_quiz(self, update: Update, context: ContextTypes.DEFAULT_TYPE, quiz_id: int):
-    """شروع آزمون"""
-    user_id = update.effective_user.id
-    
-    # دریافت اطلاعات آزمون با بررسی وضعیت فعال بودن
-    quizzes = self.db.execute_query(
-        "SELECT title, time_limit, is_active FROM quizzes WHERE id = %s", 
-        (quiz_id,)
-    )
-    
-    if not quizzes:
-        await update.callback_query.edit_message_text("آزمون یافت نشد!")
-        return
-    
-    title, time_limit, is_active = quizzes[0]
-    
-    # بررسی اینکه آزمون فعال است یا نه
-    if not is_active:
-        keyboard = [[InlineKeyboardButton("🔙 بازگشت به لیست آزمون‌ها", callback_data="take_quiz")]]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        await update.callback_query.edit_message_text(
-            "❌ این آزمون در حال حاضر غیرفعال است و نمی‌توانید در آن شرکت کنید.",
-            reply_markup=reply_markup
+        """شروع آزمون"""
+        user_id = update.effective_user.id
+        
+        # دریافت اطلاعات آزمون با بررسی وضعیت فعال بودن
+        quizzes = self.db.execute_query(
+            "SELECT title, time_limit, is_active FROM quizzes WHERE id = %s", 
+            (quiz_id,)
         )
-        return
-    
-    # دریافت سوالات
-    questions = self.db.get_quiz_questions(quiz_id)
-    
-    if not questions:
-        await update.callback_query.edit_message_text("هیچ سوالی برای این آزمون تعریف نشده!")
-        return
-    
-    # ذخیره اطلاعات آزمون در context
-    context.user_data['current_quiz'] = {
-        'quiz_id': quiz_id,
-        'questions': questions,
-        'current_question': 0,
-        'answers': [],
-        'start_time': datetime.now(),
-        'time_limit': time_limit
-    }
-    
-    # شروع تایمر
-    context.job_queue.run_once(
-        self.quiz_timeout, 
-        time_limit * 60, 
-        user_id=user_id, 
-        data=quiz_id
-    )
-    
-    await self.show_question(update, context)
+        
+        if not quizzes:
+            await update.callback_query.edit_message_text("آزمون یافت نشد!")
+            return
+        
+        title, time_limit, is_active = quizzes[0]
+        
+        # بررسی اینکه آزمون فعال است یا نه
+        if not is_active:
+            keyboard = [[InlineKeyboardButton("🔙 بازگشت به لیست آزمون‌ها", callback_data="take_quiz")]]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await update.callback_query.edit_message_text(
+                "❌ این آزمون در حال حاضر غیرفعال است و نمی‌توانید در آن شرکت کنید.",
+                reply_markup=reply_markup
+            )
+            return
+        
+        # دریافت سوالات
+        questions = self.db.get_quiz_questions(quiz_id)
+        
+        if not questions:
+            await update.callback_query.edit_message_text("هیچ سوالی برای این آزمون تعریف نشده!")
+            return
+        
+        # ذخیره اطلاعات آزمون در context
+        context.user_data['current_quiz'] = {
+            'quiz_id': quiz_id,
+            'questions': questions,
+            'current_question': 0,
+            'answers': [],
+            'start_time': datetime.now(),
+            'time_limit': time_limit
+        }
+        
+        # شروع تایمر
+        context.job_queue.run_once(
+            self.quiz_timeout, 
+            time_limit * 60, 
+            user_id=user_id, 
+            data=quiz_id
+        )
+        
+        await self.show_question(update, context)
     
     async def show_question(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """نمایش سوال جاری (همیشه ۴ گزینه)"""
@@ -682,79 +681,80 @@ class QuizBot:
         )
     
     async def admin_manage_quizzes(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """مدیریت آزمون‌ها"""
-    if update.effective_user.id != ADMIN_ID:
-        return
-    
-    quizzes = self.db.execute_query("SELECT id, title, is_active FROM quizzes ORDER BY created_at DESC")
-    
-    if not quizzes:
-        keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")]]
+        """مدیریت آزمون‌ها"""
+        if update.effective_user.id != ADMIN_ID:
+            return
+        
+        quizzes = self.db.execute_query("SELECT id, title, is_active FROM quizzes ORDER BY created_at DESC")
+        
+        if not quizzes:
+            keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")]]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await update.callback_query.edit_message_text(
+                "⚠️ هیچ آزمونی یافت نشد.",
+                reply_markup=reply_markup
+            )
+            return
+        
+        text = "📋 مدیریت آزمون‌ها:\n\n"
+        keyboard = []
+        
+        for quiz_id, title, is_active in quizzes:
+            status = "✅ فعال" if is_active else "❌ غیرفعال"
+            status_icon = "❌" if is_active else "✅"
+            action_text = "غیرفعال" if is_active else "فعال"
+            
+            text += f"📌 {title} - {status}\n"
+            keyboard.append([InlineKeyboardButton(
+                f"{status_icon} {action_text} کردن '{title}'", 
+                callback_data=f"toggle_quiz_{quiz_id}"
+            )])
+        
+        keyboard.append([InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")])
         reply_markup = InlineKeyboardMarkup(keyboard)
+        
         await update.callback_query.edit_message_text(
-            "⚠️ هیچ آزمونی یافت نشد.",
+            text,
             reply_markup=reply_markup
         )
-        return
     
-    text = "📋 مدیریت آزمون‌ها:\n\n"
-    keyboard = []
-    
-    for quiz_id, title, is_active in quizzes:
-        status = "✅ فعال" if is_active else "❌ غیرفعال"
-        status_icon = "❌" if is_active else "✅"
-        action_text = "غیرفعال" if is_active else "فعال"
-        
-        text += f"📌 {title} - {status}\n"
-        keyboard.append([InlineKeyboardButton(
-            f"{status_icon} {action_text} کردن '{title}'", 
-            callback_data=f"toggle_quiz_{quiz_id}"
-        )])
-    
-    keyboard.append([InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")])
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    await update.callback_query.edit_message_text(
-        text,
-        reply_markup=reply_markup
-    )
     async def toggle_quiz_status(self, update: Update, context: ContextTypes.DEFAULT_TYPE, quiz_id: int):
-    """تغییر وضعیت فعال/غیرفعال آزمون"""
-    if update.effective_user.id != ADMIN_ID:
-        return
-    
-    # دریافت وضعیت فعلی آزمون
-    quiz_info = self.db.execute_query(
-        "SELECT title, is_active FROM quizzes WHERE id = %s", 
-        (quiz_id,)
-    )
-    
-    if not quiz_info:
-        await update.callback_query.edit_message_text("آزمون یافت نشد!")
-        return
-    
-    title, current_status = quiz_info[0]
-    new_status = not current_status
-    
-    # به روزرسانی وضعیت آزمون
-    result = self.db.execute_query(
-        "UPDATE quizzes SET is_active = %s WHERE id = %s",
-        (new_status, quiz_id)
-    )
-    
-    if result is not None:
-        status_text = "فعال" if new_status else "غیرفعال"
-        await update.callback_query.edit_message_text(
-            f"✅ وضعیت آزمون '{title}' به {status_text} تغییر یافت."
+        """تغییر وضعیت فعال/غیرفعال آزمون"""
+        if update.effective_user.id != ADMIN_ID:
+            return
+        
+        # دریافت وضعیت فعلی آزمون
+        quiz_info = self.db.execute_query(
+            "SELECT title, is_active FROM quizzes WHERE id = %s", 
+            (quiz_id,)
         )
         
-        # بازگشت به لیست آزمون‌ها
-        await asyncio.sleep(2)
-        await self.admin_manage_quizzes(update, context)
-    else:
-        await update.callback_query.edit_message_text(
-            "❌ خطا در تغییر وضعیت آزمون! لطفاً دوباره تلاش کنید."
+        if not quiz_info:
+            await update.callback_query.edit_message_text("آزمون یافت نشد!")
+            return
+        
+        title, current_status = quiz_info[0]
+        new_status = not current_status
+        
+        # به روزرسانی وضعیت آزمون
+        result = self.db.execute_query(
+            "UPDATE quizzes SET is_active = %s WHERE id = %s",
+            (new_status, quiz_id)
         )
+        
+        if result is not None:
+            status_text = "فعال" if new_status else "غیرفعال"
+            await update.callback_query.edit_message_text(
+                f"✅ وضعیت آزمون '{title}' به {status_text} تغییر یافت."
+            )
+            
+            # بازگشت به لیست آزمون‌ها
+            await asyncio.sleep(2)
+            await self.admin_manage_quizzes(update, context)
+        else:
+            await update.callback_query.edit_message_text(
+                "❌ خطا در تغییر وضعیت آزمون! لطفاً دوباره تلاش کنید."
+            )
     
     async def admin_view_users(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """مشاهده کاربران"""
@@ -904,99 +904,93 @@ class QuizBot:
                 await update.message.reply_text("لطفاً یک عدد معتبر وارد کنید:")
     
     async def start_adding_questions(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """شروع افزودن سوالات (همه ۴ گزینه‌ای)"""
+        """شروع فرآیند افزودن سوالات"""
+        quiz_data = context.user_data['quiz_data']
+        
+        # ذخیره آزمون در دیتابیس
+        quiz_id = self.db.create_quiz(
+            quiz_data['title'],
+            quiz_data['description'],
+            quiz_data['time_limit']
+        )
+        
+        if not quiz_id:
+            await update.callback_query.edit_message_text("❌ خطا در ایجاد آزمون!")
+            return
+        
+        context.user_data['quiz_id'] = quiz_id
         context.user_data['admin_action'] = 'adding_question'
-        context.user_data['current_question'] = {}
         context.user_data['current_step'] = 'question_text'
         
         await update.callback_query.edit_message_text(
-            "📝 افزودن سوال جدید (۴ گزینه‌ای):\n\nلطفاً متن سوال را ارسال کنید\n"
-            "یا می‌توانید یک عکس به عنوان سوال ارسال کنید:"
+            "📝 افزودن سوالات:\n\nلطفاً متن سوال اول را ارسال کنید:"
         )
     
     async def handle_question_creation(self, update: Update, context: ContextTypes.DEFAULT_TYPE, text: str):
-        """مدیریت مراحل ایجاد سوال (۴ گزینه‌ای)"""
-        current_question = context.user_data['current_question']
+        """مدیریت مراحل افزودن سوال"""
         current_step = context.user_data['current_step']
         
         if current_step == 'question_text':
-            current_question['text'] = text
-            context.user_data['current_step'] = 'option1'
-            await update.message.reply_text("لطفاً گزینه اول را ارسال کنید:")
+            context.user_data['current_question'] = {
+                'text': text,
+                'image': None
+            }
+            context.user_data['current_step'] = 'question_image'
+            
+            await update.message.reply_text(
+                "لطفاً عکس سوال را ارسال کنید (یا برای رد کردن /skip تایپ کنید):"
+            )
         
         elif current_step == 'option1':
-            current_question['option1'] = text
+            context.user_data['current_question']['option1'] = text
             context.user_data['current_step'] = 'option2'
             await update.message.reply_text("لطفاً گزینه دوم را ارسال کنید:")
         
         elif current_step == 'option2':
-            current_question['option2'] = text
+            context.user_data['current_question']['option2'] = text
             context.user_data['current_step'] = 'option3'
             await update.message.reply_text("لطفاً گزینه سوم را ارسال کنید:")
         
         elif current_step == 'option3':
-            current_question['option3'] = text
+            context.user_data['current_question']['option3'] = text
             context.user_data['current_step'] = 'option4'
             await update.message.reply_text("لطفاً گزینه چهارم را ارسال کنید:")
         
         elif current_step == 'option4':
-            current_question['option4'] = text
-            await self.ask_correct_answer(update, context)
-    
-    async def ask_correct_answer(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """درخواست شماره گزینه صحیح برای سوال ۴ گزینه‌ای"""
-        current_question = context.user_data['current_question']
-        
-        options_text = "📋 گزینه‌ها:\n\n"
-        for i in range(1, 5):
-            options_text += f"{i}. {current_question[f'option{i}']}\n"
-        
-        context.user_data['current_step'] = 'correct_answer'
-        
-        if update.callback_query:
-            await update.callback_query.edit_message_text(
-                f"{options_text}\n"
-                "لطفاً شماره گزینه صحیح را وارد کنید (1-4):"
-            )
-        else:
+            context.user_data['current_question']['option4'] = text
+            context.user_data['current_step'] = 'correct_answer'
+            
+            question = context.user_data['current_question']
             await update.message.reply_text(
-                f"{options_text}\n"
+                f"📋 سوال:\n{question['text']}\n\n"
+                f"1️⃣ {question['option1']}\n"
+                f"2️⃣ {question['option2']}\n"
+                f"3️⃣ {question['option3']}\n"
+                f"4️⃣ {question['option4']}\n\n"
                 "لطفاً شماره گزینه صحیح را وارد کنید (1-4):"
             )
     
     async def save_question(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """ذخیره سوال در دیتابیس"""
-        quiz_data = context.user_data['quiz_data']
-        current_question = context.user_data['current_question']
+        question = context.user_data['current_question']
+        quiz_id = context.user_data['quiz_id']
         
-        # ذخیره آزمون اگر هنوز ذخیره نشده
-        if 'quiz_id' not in quiz_data:
-            quiz_id = self.db.create_quiz(
-                quiz_data['title'],
-                quiz_data['description'],
-                quiz_data['time_limit']
-            )
-            if quiz_id is None:
-                await update.message.reply_text("❌ خطا در ایجاد آزمون! لطفاً دوباره تلاش کنید.")
-                return
-            quiz_data['quiz_id'] = quiz_id
-        
-        # ذخیره سوال
-        success = self.db.add_question(
-            quiz_data['quiz_id'],
-            current_question.get('text', ''),
-            current_question.get('image', ''),
-            current_question.get('option1', ''),
-            current_question.get('option2', ''),
-            current_question.get('option3', ''),
-            current_question.get('option4', ''),
-            current_question.get('correct_answer', 1)
+        # ذخیره سوال در دیتابیس
+        result = self.db.add_question(
+            quiz_id,
+            question['text'],
+            question.get('image'),
+            question['option1'],
+            question['option2'],
+            question['option3'],
+            question['option4'],
+            question['correct_answer']
         )
         
-        if success is not None:
+        if result is not None:
             keyboard = [
-                [InlineKeyboardButton("➕ سوال دیگر", callback_data="add_another_question")],
-                [InlineKeyboardButton("🏁 پایان", callback_data="admin_panel")]
+                [InlineKeyboardButton("➕ افزودن سوال دیگر", callback_data="add_another_question")],
+                [InlineKeyboardButton("🏠 اتمام و بازگشت", callback_data="admin_panel")]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
@@ -1005,8 +999,22 @@ class QuizBot:
                 reply_markup=reply_markup
             )
         else:
-            await update.message.reply_text("❌ خطا در ذخیره سوال! لطفاً دوباره تلاش کنید.")
+            await update.message.reply_text("❌ خطا در ذخیره سوال!")
     
+    async def handle_skip_photo(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """رد کردن آپلود عکس"""
+        if update.effective_user.id != ADMIN_ID:
+            return
+        
+        context.user_data['current_step'] = 'option1'
+        await update.message.reply_text("✅ بدون عکس ادامه می‌دهیم.\n\nلطفاً گزینه اول را ارسال کنید:")
+    
+    async def handle_unknown_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """پردازش پیام‌های ناشناخته"""
+        await update.message.reply_text(
+            "🤔 متوجه نشدم! لطفاً از دکمه‌های موجود استفاده کنید."
+        )
+
     def run(self):
         """اجرای ربات"""
         application = Application.builder().token(BOT_TOKEN).build()
@@ -1017,10 +1025,24 @@ class QuizBot:
         application.add_handler(CallbackQueryHandler(self.handle_callback))
         
         # handlers ادمین
-        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_admin_text))
-        application.add_handler(MessageHandler(filters.PHOTO, self.handle_admin_photo))
+        application.add_handler(MessageHandler(
+            filters.TEXT & filters.User(ADMIN_ID) & ~filters.COMMAND, 
+            self.handle_admin_text
+        ))
+        application.add_handler(MessageHandler(
+            filters.PHOTO & filters.User(ADMIN_ID), 
+            self.handle_admin_photo
+        ))
+        application.add_handler(MessageHandler(
+            filters.Regex("^/skip$") & filters.User(ADMIN_ID), 
+            self.handle_skip_photo
+        ))
+        
+        # handler پیام‌های ناشناخته
+        application.add_handler(MessageHandler(filters.ALL, self.handle_unknown_message))
         
         # اجرای ربات
+        logger.info("Bot is starting...")
         application.run_polling()
 
 
