@@ -165,9 +165,9 @@ class Database:
         ''', (user_id, phone_number, username, full_name))
 
     def get_active_quizzes(self):
-        """دریافت آزمون‌های فعال"""
-        return self.execute_query(
-            "SELECT id, title, description, time_limit FROM quizzes WHERE is_active = TRUE"
+    """دریافت آزمون‌های فعال"""
+    return self.execute_query(
+        "SELECT id, title, description, time_limit FROM quizzes WHERE is_active = TRUE ORDER BY id"
         )
 
     def get_quiz_questions(self, quiz_id: int):
