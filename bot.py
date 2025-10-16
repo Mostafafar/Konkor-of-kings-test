@@ -353,6 +353,9 @@ class QuizBot:
             await self.start_adding_questions(update, context)
         elif data == "add_another_question":
             await self.start_adding_questions(update, context)
+        elif data.startswith("toggle_quiz_"):
+           quiz_id = int(data.split("_")[2])
+           await self.toggle_quiz_status(update, context, quiz_id)
     
     async def show_quiz_list(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """نمایش لیست آزمون‌های فعال"""
@@ -665,27 +668,79 @@ class QuizBot:
         )
     
     async def admin_manage_quizzes(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """مدیریت آزمون‌ها"""
-        if update.effective_user.id != ADMIN_ID:
-            return
-        
-        quizzes = self.db.execute_query("SELECT id, title, is_active FROM quizzes ORDER BY created_at DESC")
-        
-        text = "📋 مدیریت آزمون‌ها:\n\n"
-        keyboard = []
-        
-        for quiz_id, title, is_active in quizzes:
-            status = "✅ فعال" if is_active else "❌ غیرفعال"
-            text += f"📌 {title} - {status}\n"
-            keyboard.append([InlineKeyboardButton(
-                f"{'❌ غیرفعال' if is_active else '✅ فعال'} {title}", 
-                callback_data=f"toggle_quiz_{quiz_id}"
-            )])
-        
-        keyboard.append([InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")])
+    """مدیریت آزمون‌ها"""
+    if update.effective_user.id != ADMIN_ID:
+        return
+    
+    quizzes = self.db.execute_query("SELECT id, title, is_active FROM quizzes ORDER BY created_at DESC")
+    
+    if not quizzes:
+        keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")]]
         reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.callback_query.edit_message_text(
+            "⚠️ هیچ آزمونی یافت نشد.",
+            reply_markup=reply_markup
+        )
+        return
+    
+    text = "📋 مدیریت آزمون‌ها:\n\n"
+    keyboard = []
+    
+    for quiz_id, title, is_active in quizzes:
+        status = "✅ فعال" if is_active else "❌ غیرفعال"
+        status_icon = "❌" if is_active else "✅"
+        action_text = "غیرفعال" if is_active else "فعال"
         
-        await update.callback_query.edit_message_text(text, reply_markup=reply_markup)
+        text += f"📌 {title} - {status}\n"
+        keyboard.append([InlineKeyboardButton(
+            f"{status_icon} {action_text} کردن '{title}'", 
+            callback_data=f"toggle_quiz_{quiz_id}"
+        )])
+    
+    keyboard.append([InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")])
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.callback_query.edit_message_text(
+        text,
+        reply_markup=reply_markup
+    )
+    async def toggle_quiz_status(self, update: Update, context: ContextTypes.DEFAULT_TYPE, quiz_id: int):
+    """تغییر وضعیت فعال/غیرفعال آزمون"""
+    if update.effective_user.id != ADMIN_ID:
+        return
+    
+    # دریافت وضعیت فعلی آزمون
+    quiz_info = self.db.execute_query(
+        "SELECT title, is_active FROM quizzes WHERE id = %s", 
+        (quiz_id,)
+    )
+    
+    if not quiz_info:
+        await update.callback_query.edit_message_text("آزمون یافت نشد!")
+        return
+    
+    title, current_status = quiz_info[0]
+    new_status = not current_status
+    
+    # به روزرسانی وضعیت آزمون
+    result = self.db.execute_query(
+        "UPDATE quizzes SET is_active = %s WHERE id = %s",
+        (new_status, quiz_id)
+    )
+    
+    if result is not None:
+        status_text = "فعال" if new_status else "غیرفعال"
+        await update.callback_query.edit_message_text(
+            f"✅ وضعیت آزمون '{title}' به {status_text} تغییر یافت."
+        )
+        
+        # بازگشت به لیست آزمون‌ها
+        await asyncio.sleep(2)
+        await self.admin_manage_quizzes(update, context)
+    else:
+        await update.callback_query.edit_message_text(
+            "❌ خطا در تغییر وضعیت آزمون! لطفاً دوباره تلاش کنید."
+        )
     
     async def admin_view_users(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """مشاهده کاربران"""
