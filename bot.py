@@ -449,154 +449,159 @@ class QuizBot:
             reply_markup=reply_markup
         )
     
-    async def start_quiz(self, update: Update, context: ContextTypes.DEFAULT_TYPE, quiz_id: int):
-        """شروع آزمون"""
-        user_id = update.effective_user.id
-        
-        quizzes = self.db.execute_query(
-            "SELECT title, time_limit, is_active FROM quizzes WHERE id = %s", 
-            (quiz_id,)
+async def start_quiz(self, update: Update, context: ContextTypes.DEFAULT_TYPE, quiz_id: int):
+    """شروع آزمون"""
+    user_id = update.effective_user.id
+    
+    # دریافت اطلاعات آزمون
+    quiz_info = self.db.get_quiz_info(quiz_id)
+    
+    if not quiz_info:
+        await update.callback_query.edit_message_text("آزمون یافت نشد!")
+        return
+    
+    title, description, time_limit, is_active = quiz_info
+    
+    if not is_active:
+        keyboard = [[InlineKeyboardButton("🔙 بازگشت به لیست آزمون‌ها", callback_data="take_quiz")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.callback_query.edit_message_text(
+            "❌ این آزمون در حال حاضر غیرفعال است و نمی‌توانید در آن شرکت کنید.",
+            reply_markup=reply_markup
         )
-        
-        if not quizzes:
-            await update.callback_query.edit_message_text("آزمون یافت نشد!")
-            return
-        
-        title, time_limit, is_active = quizzes[0]
-        
-        if not is_active:
-            keyboard = [[InlineKeyboardButton("🔙 بازگشت به لیست آزمون‌ها", callback_data="take_quiz")]]
-            reply_markup = InlineKeyboardMarkup(keyboard)
+        return
+    
+    # دریافت سوالات آزمون
+    questions = self.db.get_quiz_questions(quiz_id)
+    
+    if not questions:
+        await update.callback_query.edit_message_text("هیچ سوالی برای این آزمون تعریف نشده!")
+        return
+    
+    # پاک کردن پاسخ‌های قبلی
+    self.db.clear_user_answers(user_id, quiz_id)
+    
+    # ذخیره اطلاعات آزمون در context
+    context.user_data['current_quiz'] = {
+        'quiz_id': quiz_id,
+        'questions': questions,
+        'current_index': 0,
+        'start_time': datetime.now(),
+        'time_limit': time_limit,
+        'title': title
+    }
+    
+    # شروع تایمر
+    context.job_queue.run_once(
+        self.quiz_timeout, 
+        time_limit * 60, 
+        user_id=user_id, 
+        data={'quiz_id': quiz_id, 'chat_id': update.effective_chat.id}
+    )
+    
+    await self.show_question(update, context)
+    
+async def show_question(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """نمایش سوال جاری"""
+    quiz_data = context.user_data['current_quiz']
+    current_index = quiz_data['current_index']
+    questions = quiz_data['questions']
+    
+    if current_index >= len(questions):
+        await update.callback_query.answer("شما در انتهای سوالات هستید!")
+        return
+    
+    question = questions[current_index]
+    question_id, question_image, correct_answer = question
+    
+    # دریافت پاسخ ذخیره شده کاربر
+    user_answers = self.db.get_user_answers(
+        update.effective_user.id, 
+        quiz_data['quiz_id']
+    )
+    user_answers_dict = {q_id: ans for q_id, ans in user_answers}
+    selected = user_answers_dict.get(question_id)
+    
+    # ایجاد کیبورد با تیک‌ها
+    keyboard = []
+    for i in range(1, 5):
+        check = "✅ " if selected == i else ""
+        keyboard.append([InlineKeyboardButton(
+            f"{check}گزینه {i}", 
+            callback_data=f"ans_{quiz_data['quiz_id']}_{current_index}_{i}"
+        )])
+    
+    # دکمه علامت‌گذاری
+    marked = context.user_data.get('marked_questions', set())
+    mark_text = "✅ علامت گذاری شده" if current_index in marked else "🏷 علامت‌گذاری"
+    keyboard.append([InlineKeyboardButton(
+        mark_text, 
+        callback_data=f"mark_{quiz_data['quiz_id']}_{current_index}"
+    )])
+    
+    # دکمه‌های ناوبری
+    nav_buttons = []
+    if current_index > 0:
+        nav_buttons.append(InlineKeyboardButton("◀️ قبلی", callback_data=f"nav_{current_index-1}"))
+    if current_index < len(questions) - 1:
+        nav_buttons.append(InlineKeyboardButton("بعدی ▶️", callback_data=f"nav_{current_index+1}"))
+    
+    if nav_buttons:
+        keyboard.append(nav_buttons)
+    
+    # اگر سوال آخر است، دکمه ارسال مجدد و ثبت نهایی
+    if current_index == len(questions) - 1:
+        marked_count = len(marked)
+        if marked_count > 0:
+            keyboard.append([InlineKeyboardButton(
+                f"🔄 مرور سوالات علامت‌گذاری شده ({marked_count})", 
+                callback_data=f"review_marked"
+            )])
+        keyboard.append([InlineKeyboardButton(
+            "✅ ثبت نهایی پاسخ‌ها", 
+            callback_data=f"submit_{quiz_data['quiz_id']}"
+        )])
+    
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    caption = f"📝 سوال {current_index + 1} از {len(questions)}\n📚 {quiz_data.get('title', '')}"
+    
+    try:
+        # بررسی وجود فایل عکس
+        if os.path.exists(question_image):
+            with open(question_image, 'rb') as photo:
+                # اگر پیام فعلی دارای عکس است، آن را ویرایش کن
+                if update.callback_query.message.photo:
+                    await update.callback_query.edit_message_media(
+                        media=InputMediaPhoto(photo, caption=caption),
+                        reply_markup=reply_markup
+                    )
+                else:
+                    # اگر پیام فعلی عکس ندارد، پیام جدید بفرست
+                    await update.callback_query.message.reply_photo(
+                        photo=photo,
+                        caption=caption,
+                        reply_markup=reply_markup
+                    )
+        else:
+            # اگر عکس وجود ندارد، فقط متن نمایش داده شود
+            error_msg = f"{caption}\n\n⚠️ تصویر سوال یافت نشد!\nمسیر: {question_image}"
             await update.callback_query.edit_message_text(
-                "❌ این آزمون در حال حاضر غیرفعال است و نمی‌توانید در آن شرکت کنید.",
+                error_msg,
                 reply_markup=reply_markup
             )
-            return
-        
-        questions = self.db.get_quiz_questions(quiz_id)
-        
-        if not questions:
-            await update.callback_query.edit_message_text("هیچ سوالی برای این آزمون تعریف نشده!")
-            return
-        
-        # پاک کردن پاسخ‌های قبلی
-        self.db.clear_user_answers(user_id, quiz_id)
-        
-        # ذخیره اطلاعات آزمون در context
-        context.user_data['current_quiz'] = {
-            'quiz_id': quiz_id,
-            'questions': questions,
-            'current_index': 0,
-            'start_time': datetime.now(),
-            'time_limit': time_limit
-        }
-        
-        # شروع تایمر
-        context.job_queue.run_once(
-            self.quiz_timeout, 
-            time_limit * 60, 
-            user_id=user_id, 
-            data={'quiz_id': quiz_id, 'chat_id': update.effective_chat.id}
-        )
-        
-        await self.show_question(update, context)
-    
-    async def show_question(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """نمایش سوال جاری"""
-        quiz_data = context.user_data['current_quiz']
-        current_index = quiz_data['current_index']
-        questions = quiz_data['questions']
-        
-        if current_index >= len(questions):
-            await update.callback_query.answer("شما در انتهای سوالات هستید!")
-            return
-        
-        question = questions[current_index]
-        question_id, question_image, correct_answer = question
-        
-        # دریافت پاسخ ذخیره شده کاربر
-        user_answers = self.db.get_user_answers(
-            update.effective_user.id, 
-            quiz_data['quiz_id']
-        )
-        user_answers_dict = {q_id: ans for q_id, ans in user_answers}
-        selected = user_answers_dict.get(question_id)
-        
-        # ایجاد کیبورد با تیک‌ها
-        keyboard = []
-        for i in range(1, 5):
-            check = "✅ " if selected == i else ""
-            keyboard.append([InlineKeyboardButton(
-                f"{check}گزینه {i}", 
-                callback_data=f"ans_{quiz_data['quiz_id']}_{current_index}_{i}"
-            )])
-        
-        # دکمه علامت‌گذاری
-        marked = context.user_data.get('marked_questions', set())
-        mark_text = "✅ علامت گذاری شده" if current_index in marked else "🏷 علامت‌گذاری"
-        keyboard.append([InlineKeyboardButton(
-            mark_text, 
-            callback_data=f"mark_{quiz_data['quiz_id']}_{current_index}"
-        )])
-        
-        # دکمه‌های ناوبری
-        nav_buttons = []
-        if current_index > 0:
-            nav_buttons.append(InlineKeyboardButton("◀️ قبلی", callback_data=f"nav_{current_index-1}"))
-        if current_index < len(questions) - 1:
-            nav_buttons.append(InlineKeyboardButton("بعدی ▶️", callback_data=f"nav_{current_index+1}"))
-        
-        if nav_buttons:
-            keyboard.append(nav_buttons)
-        
-        # اگر سوال آخر است، دکمه ارسال مجدد و ثبت نهایی
-        if current_index == len(questions) - 1:
-            marked_count = len(marked)
-            if marked_count > 0:
-                keyboard.append([InlineKeyboardButton(
-                    f"🔄 مرور سوالات علامت‌گذاری شده ({marked_count})", 
-                    callback_data=f"review_marked"
-                )])
-            keyboard.append([InlineKeyboardButton(
-                "✅ ثبت نهایی پاسخ‌ها", 
-                callback_data=f"submit_{quiz_data['quiz_id']}"
-            )])
-        
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        
-        caption = f"📝 سوال {current_index + 1} از {len(questions)}"
-        
+    except Exception as e:
+        logger.error(f"Error showing question: {e}")
         try:
-            if os.path.exists(question_image):
-                with open(question_image, 'rb') as photo:
-                    if update.callback_query.message.photo:
-                        await update.callback_query.edit_message_media(
-                            media=InputMediaPhoto(photo, caption=caption),
-                            reply_markup=reply_markup
-                        )
-                    else:
-                        await update.callback_query.message.reply_photo(
-                            photo=photo,
-                            caption=caption,
-                            reply_markup=reply_markup
-                        )
-            else:
-                await update.callback_query.edit_message_text(
-                    f"{caption}\n\n⚠️ تصویر سوال یافت نشد!",
-                    reply_markup=reply_markup
-                )
-        except Exception as e:
-            logger.error(f"Error showing question: {e}")
-            try:
-                await update.callback_query.edit_message_text(
-                    f"{caption}\n\n⚠️ خطا در نمایش تصویر!",
-                    reply_markup=reply_markup
-                )
-            except:
-                await update.callback_query.message.reply_text(
-                    f"{caption}\n\n⚠️ خطا در نمایش تصویر!",
-                    reply_markup=reply_markup
-                )
+            await update.callback_query.edit_message_text(
+                f"{caption}\n\n⚠️ خطا در نمایش سوال!",
+                reply_markup=reply_markup
+            )
+        except:
+            await update.callback_query.message.reply_text(
+                f"{caption}\n\n⚠️ خطا در نمایش سوال!",
+                reply_markup=reply_markup
+    )
     
     async def handle_answer(self, update: Update, context: ContextTypes.DEFAULT_TYPE, 
                           quiz_id: int, question_index: int, answer: int):
@@ -1046,28 +1051,32 @@ class QuizBot:
         
         context.user_data['quiz_data'] = quiz_data
     
-    async def start_adding_questions(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """شروع فرآیند افزودن سوالات"""
-        if update.effective_user.id != ADMIN_ID:
-            return
-        
-        quiz_data = context.user_data.get('quiz_data', {})
-        quiz_id = quiz_data.get('quiz_id')
-        
-        if not quiz_id:
-            await update.callback_query.edit_message_text("❌ خطا در شناسه آزمون!")
-            return
-        
-        quiz_data['current_step'] = 'adding_questions'
-        quiz_data['question_count'] = 0
-        
-        context.user_data['quiz_data'] = quiz_data
-        
-        await update.callback_query.edit_message_text(
-            f"📸 افزودن سوالات:\n\n"
-            f"لطفاً عکس سوال شماره 1 را ارسال کنید.\n\n"
-            f"⚠️ توجه: پس از ارسال عکس، شماره گزینه صحیح را ارسال کنید (1 تا 4)"
-        )
+async def start_adding_questions(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """شروع فرآیند افزودن سوالات"""
+    if update.effective_user.id != ADMIN_ID:
+        return
+    
+    quiz_data = context.user_data.get('quiz_data', {})
+    quiz_id = quiz_data.get('quiz_id')
+    
+    if not quiz_id:
+        await update.callback_query.edit_message_text("❌ خطا در شناسه آزمون!")
+        return
+    
+    quiz_data['current_step'] = 'adding_questions'
+    quiz_data['question_count'] = self.db.get_question_count(quiz_id)  # استفاده از تعداد سوالات موجود
+    quiz_data['waiting_for_correct_answer'] = False
+    
+    context.user_data['quiz_data'] = quiz_data
+    context.user_data['admin_action'] = 'creating_quiz'  # اطمینان از تنظیم صحیح action
+    
+    question_number = quiz_data['question_count'] + 1
+    
+    await update.callback_query.message.reply_text(  # استفاده از message.reply_text به جای edit_message_text
+        f"📸 افزودن سوالات:\n\n"
+        f"لطفاً عکس سوال شماره {question_number} را ارسال کنید.\n\n"
+        f"⚠️ توجه: پس از ارسال عکس، شماره گزینه صحیح را ارسال کنید (1 تا 4)"
+    )
     
     async def handle_admin_photos(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """پردازش عکس‌های ارسالی توسط ادمین"""
@@ -1165,8 +1174,11 @@ def main():
     application.add_handler(CommandHandler("start", bot.start))
     application.add_handler(MessageHandler(filters.CONTACT, bot.handle_contact))
     application.add_handler(CallbackQueryHandler(bot.handle_callback))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, bot.handle_admin_messages))
+    
+    # هندلرهای ادمین - باید به ترتیب صحیح اضافه شوند
     application.add_handler(MessageHandler(filters.PHOTO, bot.handle_admin_photos))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, bot.handle_admin_messages))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, bot.handle_correct_answer))
     
     logger.info("Bot is starting...")
     application.run_polling()
