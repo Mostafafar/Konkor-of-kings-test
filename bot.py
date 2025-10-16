@@ -359,11 +359,9 @@ class QuizBot:
     
     async def show_quiz_list(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
     """نمایش لیست آزمون‌های فعال"""
-    user_id = update.effective_user.id
-    
-    # فقط آزمون‌های فعال را نمایش بده
+    # فقط آزمون‌های فعال را دریافت کن
     quizzes = self.db.execute_query(
-        "SELECT id, title FROM quizzes WHERE is_active = TRUE ORDER BY created_at DESC"
+        "SELECT id, title, description, time_limit FROM quizzes WHERE is_active = TRUE ORDER BY id"
     )
     
     if not quizzes:
@@ -375,31 +373,24 @@ class QuizBot:
         )
         return
     
-    text = "📝 لیست آزمون‌های فعال:\n\n"
     keyboard = []
-    
-    for quiz_id, title in quizzes:
-        # بررسی اینکه کاربر قبلاً این آزمون را داده یا نه
-        user_result = self.db.execute_query(
-            "SELECT score FROM user_results WHERE user_id = %s AND quiz_id = %s",
-            (user_id, quiz_id)
-        )
-        
-        if user_result:
-            score = user_result[0][0]
-            button_text = f"📊 {title} (امتیاز: {score})"
-        else:
-            button_text = f"📝 {title}"
-        
+    for quiz in quizzes:
+        quiz_id, title, description, time_limit = quiz
+        button_text = f"⏱ {time_limit} دقیقه - {title}"
         keyboard.append([InlineKeyboardButton(button_text, callback_data=f"quiz_{quiz_id}")])
     
     keyboard.append([InlineKeyboardButton("🔙 بازگشت", callback_data="main_menu")])
     reply_markup = InlineKeyboardMarkup(keyboard)
     
+    text = "📋 لیست آزمون‌های فعال:\n\n"
+    for quiz in quizzes:
+        quiz_id, title, description, time_limit = quiz
+        text += f"• {title}\n⏱ {time_limit} دقیقه\n📝 {description}\n\n"
+    
     await update.callback_query.edit_message_text(
         text,
         reply_markup=reply_markup
-    )
+            )
 
     
     async def start_quiz(self, update: Update, context: ContextTypes.DEFAULT_TYPE, quiz_id: int):
