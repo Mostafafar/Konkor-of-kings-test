@@ -1100,37 +1100,41 @@ class QuizBot:
             f"لطفاً شماره گزینه صحیح را ارسال کنید (1 تا 4):"
         )
     
-    async def handle_correct_answer(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """پردازش پاسخ صحیح ارسالی توسط ادمین"""
-        if update.effective_user.id != ADMIN_ID:
-            return
+async def handle_correct_answer(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """پردازش پاسخ صحیح ارسالی توسط ادمین"""
+    if update.effective_user.id != ADMIN_ID:
+        return
+    
+    if context.user_data.get('admin_action') != 'creating_quiz':
+        return
+    
+    quiz_data = context.user_data.get('quiz_data', {})
+    
+    if not quiz_data.get('waiting_for_correct_answer'):
+        return
+    
+    try:
+        correct_answer = int(update.message.text)
+        if correct_answer < 1 or correct_answer > 4:
+            raise ValueError("مقدار خارج از محدوده")
         
-        if context.user_data.get('admin_action') != 'creating_quiz':
-            return
+        question_count = quiz_data.get('question_count', 0) + 1
+        image_path = quiz_data.get('current_question_image')
         
-        quiz_data = context.user_data.get('quiz_data', {})
+        # ذخیره سوال در دیتابیس
+        success = self.db.add_question(
+            quiz_data['quiz_id'],
+            image_path,
+            correct_answer,
+            question_count
+        )
         
-        if not quiz_data.get('waiting_for_correct_answer'):
-            return
-        
-        try:
-            correct_answer = int(update.message.text)
-            if correct_answer < 1 or correct_answer > 4:
-                raise ValueError("مقدار خارج از محدوده")
-            
-            question_count = quiz_data.get('question_count', 0) + 1
-            image_path = quiz_data.get('current_question_image')
-            
-            # ذخیره سوال در دیتابیس
-            self.db.add_question(
-                quiz_data['quiz_id'],
-                image_path,
-                correct_answer,
-                question_count
-            )
-            
+        if success:
             quiz_data['question_count'] = question_count
             quiz_data['waiting_for_correct_answer'] = False
+            del quiz_data['current_question_image']  # پاک کردن عکس جاری
+            
+            context.user_data['quiz_data'] = quiz_data
             
             keyboard = [
                 [InlineKeyboardButton("➕ افزودن سوال بعدی", callback_data="add_another_question")],
@@ -1140,14 +1144,15 @@ class QuizBot:
             
             await update.message.reply_text(
                 f"✅ سوال {question_count} با موفقیت اضافه شد.\n\n"
-                f"گزینه صحیح: {correct_answer}",
+                f"گزینه صحیح: {correct_answer}\n\n"
+                f"برای افزودن سوال بعدی روی دکمه زیر کلیک کنید:",
                 reply_markup=reply_markup
             )
+        else:
+            await update.message.reply_text("❌ خطا در ذخیره سوال!")
             
-            context.user_data['quiz_data'] = quiz_data
-            
-        except ValueError:
-            await update.message.reply_text("لطفاً یک عدد بین 1 تا 4 ارسال کنید:")
+    except ValueError:
+        await update.message.reply_text("لطفاً یک عدد بین 1 تا 4 ارسال کنید:")
 
 
 def main():
