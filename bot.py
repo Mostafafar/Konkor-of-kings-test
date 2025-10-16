@@ -358,79 +358,102 @@ class QuizBot:
            await self.toggle_quiz_status(update, context, quiz_id)
     
     async def show_quiz_list(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """نمایش لیست آزمون‌های فعال"""
-        quizzes = self.db.get_active_quizzes()
-        
-        if not quizzes:
-            keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data="main_menu")]]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            await update.callback_query.edit_message_text(
-                "⚠️ در حال حاضر هیچ آزمون فعالی وجود ندارد.",
-                reply_markup=reply_markup
-            )
-            return
-        
-        keyboard = []
-        for quiz in quizzes:
-            quiz_id, title, description, time_limit = quiz
-            button_text = f"⏱ {time_limit} دقیقه - {title}"
-            keyboard.append([InlineKeyboardButton(button_text, callback_data=f"quiz_{quiz_id}")])
-        
-        keyboard.append([InlineKeyboardButton("🔙 بازگشت", callback_data="main_menu")])
+    """نمایش لیست آزمون‌های فعال"""
+    user_id = update.effective_user.id
+    
+    # فقط آزمون‌های فعال را نمایش بده
+    quizzes = self.db.execute_query(
+        "SELECT id, title FROM quizzes WHERE is_active = TRUE ORDER BY created_at DESC"
+    )
+    
+    if not quizzes:
+        keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data="main_menu")]]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        
-        text = "📋 لیست آزمون‌های فعال:\n\n"
-        for quiz in quizzes:
-            quiz_id, title, description, time_limit = quiz
-            text += f"• {title}\n⏱ {time_limit} دقیقه\n📝 {description}\n\n"
-        
         await update.callback_query.edit_message_text(
-            text,
+            "⚠️ در حال حاضر هیچ آزمون فعالی وجود ندارد.",
             reply_markup=reply_markup
         )
+        return
+    
+    text = "📝 لیست آزمون‌های فعال:\n\n"
+    keyboard = []
+    
+    for quiz_id, title in quizzes:
+        # بررسی اینکه کاربر قبلاً این آزمون را داده یا نه
+        user_result = self.db.execute_query(
+            "SELECT score FROM user_results WHERE user_id = %s AND quiz_id = %s",
+            (user_id, quiz_id)
+        )
+        
+        if user_result:
+            score = user_result[0][0]
+            button_text = f"📊 {title} (امتیاز: {score})"
+        else:
+            button_text = f"📝 {title}"
+        
+        keyboard.append([InlineKeyboardButton(button_text, callback_data=f"quiz_{quiz_id}")])
+    
+    keyboard.append([InlineKeyboardButton("🔙 بازگشت", callback_data="main_menu")])
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.callback_query.edit_message_text(
+        text,
+        reply_markup=reply_markup
+    )
+
     
     async def start_quiz(self, update: Update, context: ContextTypes.DEFAULT_TYPE, quiz_id: int):
-        """شروع آزمون"""
-        user_id = update.effective_user.id
-        
-        # دریافت اطلاعات آزمون
-        quizzes = self.db.execute_query(
-            "SELECT title, time_limit FROM quizzes WHERE id = %s", 
-            (quiz_id,)
+    """شروع آزمون"""
+    user_id = update.effective_user.id
+    
+    # دریافت اطلاعات آزمون با بررسی وضعیت فعال بودن
+    quizzes = self.db.execute_query(
+        "SELECT title, time_limit, is_active FROM quizzes WHERE id = %s", 
+        (quiz_id,)
+    )
+    
+    if not quizzes:
+        await update.callback_query.edit_message_text("آزمون یافت نشد!")
+        return
+    
+    title, time_limit, is_active = quizzes[0]
+    
+    # بررسی اینکه آزمون فعال است یا نه
+    if not is_active:
+        keyboard = [[InlineKeyboardButton("🔙 بازگشت به لیست آزمون‌ها", callback_data="take_quiz")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.callback_query.edit_message_text(
+            "❌ این آزمون در حال حاضر غیرفعال است و نمی‌توانید در آن شرکت کنید.",
+            reply_markup=reply_markup
         )
-        
-        if not quizzes:
-            await update.callback_query.edit_message_text("آزمون یافت نشد!")
-            return
-        
-        title, time_limit = quizzes[0]
-        
-        # دریافت سوالات
-        questions = self.db.get_quiz_questions(quiz_id)
-        
-        if not questions:
-            await update.callback_query.edit_message_text("هیچ سوالی برای این آزمون تعریف نشده!")
-            return
-        
-        # ذخیره اطلاعات آزمون در context
-        context.user_data['current_quiz'] = {
-            'quiz_id': quiz_id,
-            'questions': questions,
-            'current_question': 0,
-            'answers': [],
-            'start_time': datetime.now(),
-            'time_limit': time_limit
-        }
-        
-        # شروع تایمر
-        context.job_queue.run_once(
-            self.quiz_timeout, 
-            time_limit * 60, 
-            user_id=user_id, 
-            data=quiz_id
-        )
-        
-        await self.show_question(update, context)
+        return
+    
+    # دریافت سوالات
+    questions = self.db.get_quiz_questions(quiz_id)
+    
+    if not questions:
+        await update.callback_query.edit_message_text("هیچ سوالی برای این آزمون تعریف نشده!")
+        return
+    
+    # ذخیره اطلاعات آزمون در context
+    context.user_data['current_quiz'] = {
+        'quiz_id': quiz_id,
+        'questions': questions,
+        'current_question': 0,
+        'answers': [],
+        'start_time': datetime.now(),
+        'time_limit': time_limit
+    }
+    
+    # شروع تایمر
+    context.job_queue.run_once(
+        self.quiz_timeout, 
+        time_limit * 60, 
+        user_id=user_id, 
+        data=quiz_id
+    )
+    
+    await self.show_question(update, context)
     
     async def show_question(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """نمایش سوال جاری (همیشه ۴ گزینه)"""
