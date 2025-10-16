@@ -127,14 +127,16 @@ class Database:
             logger.error(f"Database initialization error: {e}")
             self.connection.rollback()
 
-    def execute_query(self, query: str, params: tuple = None):
+    def execute_query(self, query: str, params: tuple = None, return_id: bool = False):
         """اجرای کوئری و بازگشت نتیجه"""
         try:
             cursor = self.connection.cursor()
             cursor.execute(query, params or ())
             
-            if query.strip().upper().startswith('SELECT'):
-                return cursor.fetchall()
+            if query.strip().upper().startswith('SELECT') or return_id:
+                result = cursor.fetchall()
+                self.connection.commit()
+                return result
             else:
                 self.connection.commit()
                 return cursor.rowcount
@@ -207,8 +209,11 @@ class Database:
             INSERT INTO quizzes (title, description, time_limit, is_active) 
             VALUES (%s, %s, %s, TRUE) 
             RETURNING id
-        ''', (title, description, time_limit))
-        return result[0][0] if result else None
+        ''', (title, description, time_limit), return_id=True)
+        
+        if result and len(result) > 0:
+            return result[0][0]  # بازگشت اولین ستون از اولین ردیف
+        return None
 
     def add_question(self, quiz_id: int, question_text: str, question_image: str, 
                     option1: str, option2: str, option3: str, option4: str, correct_answer: int):
@@ -902,10 +907,13 @@ class QuizBot:
                 quiz_data['description'],
                 quiz_data['time_limit']
             )
+            if quiz_id is None:
+                await update.message.reply_text("❌ خطا در ایجاد آزمون! لطفاً دوباره تلاش کنید.")
+                return
             quiz_data['quiz_id'] = quiz_id
         
         # ذخیره سوال
-        self.db.add_question(
+        success = self.db.add_question(
             quiz_data['quiz_id'],
             current_question.get('text', ''),
             current_question.get('image', ''),
@@ -916,16 +924,19 @@ class QuizBot:
             current_question.get('correct_answer', 1)
         )
         
-        keyboard = [
-            [InlineKeyboardButton("➕ سوال دیگر", callback_data="add_another_question")],
-            [InlineKeyboardButton("🏁 پایان", callback_data="admin_panel")]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        
-        await update.message.reply_text(
-            "✅ سوال با موفقیت ذخیره شد!",
-            reply_markup=reply_markup
-        )
+        if success is not None:
+            keyboard = [
+                [InlineKeyboardButton("➕ سوال دیگر", callback_data="add_another_question")],
+                [InlineKeyboardButton("🏁 پایان", callback_data="admin_panel")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await update.message.reply_text(
+                "✅ سوال با موفقیت ذخیره شد!",
+                reply_markup=reply_markup
+            )
+        else:
+            await update.message.reply_text("❌ خطا در ذخیره سوال! لطفاً دوباره تلاش کنید.")
     
     def run(self):
         """اجرای ربات"""
