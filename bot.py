@@ -772,30 +772,87 @@ async def submit_quiz(update: Update, context: ContextTypes.DEFAULT_TYPE, quiz_i
         del context.user_data['review_mode']
 
 async def quiz_timeout(context: ContextTypes.DEFAULT_TYPE):
-    """اتمام زمان آزمون"""
+    """اتمام زمان آزمون به صورت خودکار"""
     job = context.job
     user_id = job.user_id
-    quiz_id = job.data['quiz_id']
-    chat_id = job.data['chat_id']
+    data = job.data
     
     try:
-        # محاسبه نتایج
-        user_answers = get_user_answers(user_id, quiz_id)
-        score = len(user_answers)  # در این حالت فقط تعداد پاسخ‌های داده شده
+        quiz_id = data['quiz_id']
+        chat_id = data['chat_id']
         
-        # ذخیره نتیجه
-        save_result(user_id, quiz_id, score, job.data.get('time_limit', 60) * 60)
+        # دریافت سوالات آزمون
+        questions = get_quiz_questions(quiz_id)
+        if not questions:
+            await context.bot.send_message(chat_id, "خطا در دریافت سوالات آزمون!")
+            return
+        
+        # دریافت پاسخ‌های کاربر
+        user_answers = get_user_answers(user_id, quiz_id)
+        user_answers_dict = {q_id: ans for q_id, ans in user_answers}
+        
+        # محاسبه امتیاز واقعی
+        score = 0
+        total_questions = len(questions)
+        
+        for question in questions:
+            question_id, question_image, correct_answer = question
+            user_answer = user_answers_dict.get(question_id)
+            if user_answer == correct_answer:
+                score += 1
+        
+        # ذخیره نتیجه با زمان کامل
+        save_result(user_id, quiz_id, score, data['time_limit'] * 60)
+        
+        # دریافت اطلاعات آزمون
+        quiz_info = get_quiz_info(quiz_id)
+        quiz_title = quiz_info[0] if quiz_info else "نامشخص"
+        
+        # ارسال نتایج به ادمین
+        admin_result_text = (
+            "⏰ آزمون به صورت خودکار به پایان رسید:\n\n"
+            f"👤 کاربر: {user_id}\n"
+            f"📚 آزمون: {quiz_title}\n"
+            f"✅ امتیاز: {score} از {total_questions}\n"
+            f"⏱ زمان مجاز: {data['time_limit']} دقیقه\n"
+            f"📝 تعداد پاسخ‌ها: {len(user_answers)} از {total_questions}"
+        )
+        
+        try:
+            await context.bot.send_message(ADMIN_ID, admin_result_text)
+        except Exception as e:
+            logger.error(f"Error sending timeout results to admin: {e}")
+        
+        # ارسال پیام به کاربر
+        user_message = (
+            "⏰ زمان آزمون به پایان رسید!\n\n"
+            #f"📊 نتیجه: {score} از {total_questions}\n"
+            f"📝 تعداد پاسخ‌های شما: {len(user_answers)} از {total_questions}\n\n"
+            "با تشکر از مشارکت شما!"
+        )
         
         await context.bot.send_message(
             chat_id,
-            "⏰ زمان آزمون به پایان رسید! پاسخ‌های شما ثبت شد.",
+            user_message,
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("🔙 منوی اصلی", callback_data="main_menu")]
             ])
         )
+        
+        logger.info(f"Quiz timeout handled for user {user_id}, score: {score}/{total_questions}")
+        
     except Exception as e:
         logger.error(f"Error in quiz timeout: {e}")
-
+        try:
+            await context.bot.send_message(
+                chat_id,
+                "⏰ زمان آزمون به پایان رسید! پاسخ‌های شما ثبت شد.",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🔙 منوی اصلی", callback_data="main_menu")]
+                ])
+            )
+        except:
+            pass
 async def show_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """نمایش راهنما"""
     help_text = (
