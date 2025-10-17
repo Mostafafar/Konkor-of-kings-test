@@ -744,7 +744,7 @@ async def submit_quiz(update: Update, context: ContextTypes.DEFAULT_TYPE, quiz_i
     # پیام به کاربر
     user_message = (
         f"✅ آزمون شما با موفقیت ثبت شد!\n\n"
-        f"📊 نتیجه: {score} از {total_questions}\n"
+        #f"📊 نتیجه: {score} از {total_questions}\n"
         f"⏱ زمان: {total_time // 60}:{total_time % 60:02d}\n\n"
         f"نتایج برای مدیران ارسال گردید."
     )
