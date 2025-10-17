@@ -481,12 +481,17 @@ async def start_quiz(update: Update, context: ContextTypes.DEFAULT_TYPE, quiz_id
         'title': title
     }
     
-    # شروع تایمر
+    # شروع تایم‌اوت با داده‌های کامل
     context.job_queue.run_once(
         quiz_timeout, 
         time_limit * 60, 
         user_id=user_id, 
-        data={'quiz_id': quiz_id, 'chat_id': update.effective_chat.id}
+        data={
+            'quiz_id': quiz_id, 
+            'chat_id': update.effective_chat.id,
+            'time_limit': time_limit
+        },
+        name=f"quiz_timeout_{user_id}_{quiz_id}"
     )
     
     await show_question(update, context)
