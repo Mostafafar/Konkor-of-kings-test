@@ -271,30 +271,36 @@ def toggle_quiz_status(quiz_id: int):
     ''', (quiz_id,))
 
 # توابع اصلی ربات
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """شروع ربات و دریافت شماره تلفن"""
+    """شروع ربات بدون درخواست شماره تلفن"""
     user = update.effective_user
     user_id = user.id
     
+    # بررسی وجود کاربر و ثبت خودکار اگر وجود ندارد
     user_data = get_user(user_id)
-    
-    if user_data:
-        await show_main_menu(update, context)
-    else:
-        keyboard = [
-            [KeyboardButton("📞 ارسال شماره تلفن", request_contact=True)]
-        ]
-        reply_markup = ReplyKeyboardMarkup(
-            keyboard, 
-            resize_keyboard=True, 
-            one_time_keyboard=True
+    if not user_data:
+        add_user(
+            user_id, 
+            "",  # شماره تلفن خالی
+            user.username, 
+            user.full_name
         )
         
-        await update.message.reply_text(
-            "👋 به ربات آزمون خوش آمدید!\n\n"
-            "برای استفاده از ربات، لطفاً شماره تلفن خود را ارسال کنید:",
-            reply_markup=reply_markup
+        # اطلاع به ادمین
+        admin_message = (
+            "👤 کاربر جدید ثبت نام کرد:\n"
+            f"🆔 آیدی: {user.id}\n"
+            f"👤 نام: {user.full_name}\n"
+            f"🔗 یوزرنیم: @{user.username if user.username else 'ندارد'}"
         )
+        
+        try:
+            await context.bot.send_message(ADMIN_ID, admin_message)
+        except Exception as e:
+            logger.error(f"Error sending message to admin: {e}")
+    
+    await show_main_menu(update, context)
 
 async def handle_contact(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """پردازش شماره تلفن دریافتی"""
