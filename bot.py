@@ -110,16 +110,20 @@ def init_database():
         ''')
         
         # جدول نتایج
+        # در تابع init_database، جدول results را به روز کنید:
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS results (
                 id SERIAL PRIMARY KEY,
                 user_id BIGINT REFERENCES users(user_id) ON DELETE CASCADE,
                 quiz_id INTEGER REFERENCES quizzes(id) ON DELETE CASCADE,
-                score INTEGER DEFAULT 0,
+                score REAL DEFAULT 0,
+                correct_answers INTEGER DEFAULT 0,
+                wrong_answers INTEGER DEFAULT 0,
+                unanswered_questions INTEGER DEFAULT 0,
                 total_time INTEGER DEFAULT 0,
                 completed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
-        ''')
+       ''')
         
         db_connection.commit()
         logger.info("Database tables created successfully")
@@ -203,12 +207,12 @@ def clear_user_answers(user_id: int, quiz_id: int):
         (user_id, quiz_id)
     )
 
-def save_result(user_id: int, quiz_id: int, score: int, total_time: int):
-    """ذخیره نتیجه آزمون"""
+def save_result(user_id: int, quiz_id: int, score: float, total_time: int, correct_answers: int = 0, wrong_answers: int = 0, unanswered_questions: int = 0):
+    """ذخیره نتیجه آزمون با اطلاعات کامل"""
     return execute_query('''
-        INSERT INTO results (user_id, quiz_id, score, total_time) 
-        VALUES (%s, %s, %s, %s)
-    ''', (user_id, quiz_id, score, total_time))
+        INSERT INTO results (user_id, quiz_id, score, total_time, correct_answers, wrong_answers, unanswered_questions) 
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
+    ''', (user_id, quiz_id, score, total_time, correct_answers, wrong_answers, unanswered_questions))
 
 def create_quiz(title: str, description: str, time_limit: int):
     """ایجاد آزمون جدید"""
@@ -689,7 +693,7 @@ async def review_marked_questions(update: Update, context: ContextTypes.DEFAULT_
     await show_question(update, context)
 
 async def submit_quiz(update: Update, context: ContextTypes.DEFAULT_TYPE, quiz_id: int):
-    """ثبت نهایی پاسخ‌ها و محاسبه نتایج"""
+    """ثبت نهایی پاسخ‌ها و محاسبه نتایج با نمره منفی"""
     user_id = update.effective_user.id
     quiz_data = context.user_data.get('current_quiz')
     
@@ -700,13 +704,19 @@ async def submit_quiz(update: Update, context: ContextTypes.DEFAULT_TYPE, quiz_i
     # محاسبه زمان صرف شده
     total_time = (datetime.now() - quiz_data['start_time']).seconds
     
-    # محاسبه امتیاز
+    # محاسبه امتیاز با نمره منفی
     user_answers = get_user_answers(user_id, quiz_id)
     user_answers_dict = {q_id: ans for q_id, ans in user_answers}
     
     score = 0
     total_questions = len(quiz_data['questions'])
     correct_answers = 0
+    wrong_answers = 0
+    unanswered_questions = 0
+    
+    correct_questions = []
+    wrong_questions = []
+    unanswered_questions_list = []
     
     result_details = "📊 جزئیات پاسخ‌ها:\n\n"
     
@@ -714,18 +724,29 @@ async def submit_quiz(update: Update, context: ContextTypes.DEFAULT_TYPE, quiz_i
         question_id, question_image, correct_answer = question
         user_answer = user_answers_dict.get(question_id)
         
-        is_correct = user_answer == correct_answer
-        
-        if is_correct:
+        if user_answer is None:
+            unanswered_questions += 1
+            unanswered_questions_list.append(i + 1)
+            result_details += f"⏸️ سوال {i+1}: بی‌پاسخ\n"
+        elif user_answer == correct_answer:
             score += 1
             correct_answers += 1
+            correct_questions.append(i + 1)
             result_details += f"✅ سوال {i+1}: صحیح\n"
         else:
+            wrong_answers += 1
+            wrong_questions.append(i + 1)
             user_answer_text = user_answer if user_answer else "پاسخی داده نشد"
             result_details += f"❌ سوال {i+1}: غلط (پاسخ شما: {user_answer_text}, پاسخ صحیح: {correct_answer})\n"
     
+    # محاسبه نمره با نمره منفی (هر 3 پاسخ اشتباه = 1 نمره منفی)
+    raw_score = correct_answers
+    penalty = wrong_answers / 3.0
+    final_score = max(0, raw_score - penalty)
+    final_percentage = (final_score / total_questions) * 100 if total_questions > 0 else 0
+    
     # ذخیره نتیجه
-    save_result(user_id, quiz_id, score, total_time)
+    save_result(user_id, quiz_id, final_percentage, total_time, correct_answers, wrong_answers, unanswered_questions)
     
     # دریافت اطلاعات کاربر و آزمون
     user_info = get_user(user_id)
@@ -741,9 +762,15 @@ async def submit_quiz(update: Update, context: ContextTypes.DEFAULT_TYPE, quiz_i
         f"📞 شماره: {user_data[1]}\n"
         f"🆔 آیدی: {user_id}\n\n"
         f"📚 آزمون: {quiz_title}\n"
-        f"✅ امتیاز: {score} از {total_questions}\n"
-        f"📈 صحیح: {correct_answers} از {total_questions}\n"
+        f"📝 تعداد کل سوالات: {total_questions}\n"
+        f"✅ پاسخ‌های صحیح: {correct_answers}\n"
+        f"❌ پاسخ‌های غلط: {wrong_answers}\n"
+        f"⏸️ بی‌پاسخ: {unanswered_questions}\n"
+        f"📈 درصد نهایی: {final_percentage:.2f}%\n"
         f"⏱ زمان: {total_time // 60}:{total_time % 60:02d}\n\n"
+        f"🔢 سوالات صحیح: {', '.join(map(str, correct_questions)) if correct_questions else 'ندارد'}\n"
+        f"🔢 سوالات غلط: {', '.join(map(str, wrong_questions)) if wrong_questions else 'ندارد'}\n"
+        f"🔢 سوالات بی‌پاسخ: {', '.join(map(str, unanswered_questions_list)) if unanswered_questions_list else 'ندارد'}\n\n"
         f"{result_details}"
     )
     
@@ -752,13 +779,27 @@ async def submit_quiz(update: Update, context: ContextTypes.DEFAULT_TYPE, quiz_i
     except Exception as e:
         logger.error(f"Error sending results to admin: {e}")
     
-    # پیام به کاربر
+    # پیام به کاربر - نسخه کامل با شماره سوالات
     user_message = (
         f"✅ آزمون شما با موفقیت ثبت شد!\n\n"
-        #f"📊 نتیجه: {score} از {total_questions}\n"
+        f"📊 نتایج:\n"
+        f"✅ صحیح: {correct_answers} از {total_questions}\n"
+        f"❌ غلط: {wrong_answers} از {total_questions}\n"
+        f"⏸️ بی‌پاسخ: {unanswered_questions} از {total_questions}\n"
+        f"📈 درصد نهایی: {final_percentage:.2f}%\n"
         f"⏱ زمان: {total_time // 60}:{total_time % 60:02d}\n\n"
-        f"نتایج برای مدیران ارسال گردید."
     )
+    
+    # اضافه کردن شماره سوالات به پیام کاربر
+    if correct_questions:
+        user_message += f"🔢 سوالات صحیح: {', '.join(map(str, correct_questions))}\n"
+    if wrong_questions:
+        user_message += f"🔢 سوالات غلط: {', '.join(map(str, wrong_questions))}\n"
+    if unanswered_questions_list:
+        user_message += f"🔢 سوالات بی‌پاسخ: {', '.join(map(str, unanswered_questions_list))}\n"
+    
+    user_message += f"\n💡 نکته: هر ۳ پاسخ اشتباه، معادل ۱ پاسخ صحیح نمره منفی دارد.\n\n"
+    user_message += f"نتایج برای مدیران ارسال گردید."
     
     keyboard = [[InlineKeyboardButton("🔙 منوی اصلی", callback_data="main_menu")]]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -783,7 +824,7 @@ async def submit_quiz(update: Update, context: ContextTypes.DEFAULT_TYPE, quiz_i
         del context.user_data['review_mode']
 
 async def quiz_timeout(context: ContextTypes.DEFAULT_TYPE):
-    """اتمام زمان آزمون به صورت خودکار"""
+    """اتمام زمان آزمون به صورت خودکار با محاسبه نمره منفی"""
     job = context.job
     user_id = job.user_id
     data = job.data
@@ -802,18 +843,38 @@ async def quiz_timeout(context: ContextTypes.DEFAULT_TYPE):
         user_answers = get_user_answers(user_id, quiz_id)
         user_answers_dict = {q_id: ans for q_id, ans in user_answers}
         
-        # محاسبه امتیاز واقعی
-        score = 0
+        # محاسبه امتیاز با نمره منفی
+        correct_answers = 0
+        wrong_answers = 0
+        unanswered_questions = 0
         total_questions = len(questions)
         
-        for question in questions:
+        correct_questions = []
+        wrong_questions = []
+        unanswered_questions_list = []
+        
+        for i, question in enumerate(questions):
             question_id, question_image, correct_answer = question
             user_answer = user_answers_dict.get(question_id)
-            if user_answer == correct_answer:
-                score += 1
+            
+            if user_answer is None:
+                unanswered_questions += 1
+                unanswered_questions_list.append(i + 1)
+            elif user_answer == correct_answer:
+                correct_answers += 1
+                correct_questions.append(i + 1)
+            else:
+                wrong_answers += 1
+                wrong_questions.append(i + 1)
+        
+        # محاسبه نمره با نمره منفی
+        raw_score = correct_answers
+        penalty = wrong_answers / 3.0
+        final_score = max(0, raw_score - penalty)
+        final_percentage = (final_score / total_questions) * 100 if total_questions > 0 else 0
         
         # ذخیره نتیجه با زمان کامل
-        save_result(user_id, quiz_id, score, data['time_limit'] * 60)
+        save_result(user_id, quiz_id, final_percentage, data['time_limit'] * 60, correct_answers, wrong_answers, unanswered_questions)
         
         # دریافت اطلاعات آزمون
         quiz_info = get_quiz_info(quiz_id)
@@ -824,9 +885,15 @@ async def quiz_timeout(context: ContextTypes.DEFAULT_TYPE):
             "⏰ آزمون به صورت خودکار به پایان رسید:\n\n"
             f"👤 کاربر: {user_id}\n"
             f"📚 آزمون: {quiz_title}\n"
-            f"✅ امتیاز: {score} از {total_questions}\n"
-            f"⏱ زمان مجاز: {data['time_limit']} دقیقه\n"
-            f"📝 تعداد پاسخ‌ها: {len(user_answers)} از {total_questions}"
+            f"📝 تعداد کل سوالات: {total_questions}\n"
+            f"✅ پاسخ‌های صحیح: {correct_answers}\n"
+            f"❌ پاسخ‌های غلط: {wrong_answers}\n"
+            f"⏸️ بی‌پاسخ: {unanswered_questions}\n"
+            f"📈 درصد نهایی: {final_percentage:.2f}%\n"
+            f"⏱ زمان مجاز: {data['time_limit']} دقیقه\n\n"
+            f"🔢 سوالات صحیح: {', '.join(map(str, correct_questions)) if correct_questions else 'ندارد'}\n"
+            f"🔢 سوالات غلط: {', '.join(map(str, wrong_questions)) if wrong_questions else 'ندارد'}\n"
+            f"🔢 سوالات بی‌پاسخ: {', '.join(map(str, unanswered_questions_list)) if unanswered_questions_list else 'ندارد'}"
         )
         
         try:
@@ -834,13 +901,27 @@ async def quiz_timeout(context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             logger.error(f"Error sending timeout results to admin: {e}")
         
-        # ارسال پیام به کاربر
+        # ارسال پیام به کاربر - نسخه کامل با شماره سوالات
         user_message = (
             "⏰ زمان آزمون به پایان رسید!\n\n"
-            #f"📊 نتیجه: {score} از {total_questions}\n"
+            f"📊 نتایج:\n"
+            f"✅ صحیح: {correct_answers} از {total_questions}\n"
+            f"❌ غلط: {wrong_answers} از {total_questions}\n"
+            f"⏸️ بی‌پاسخ: {unanswered_questions} از {total_questions}\n"
+            f"📈 درصد نهایی: {final_percentage:.2f}%\n"
             f"📝 تعداد پاسخ‌های شما: {len(user_answers)} از {total_questions}\n\n"
-            "با تشکر از مشارکت شما!"
         )
+        
+        # اضافه کردن شماره سوالات به پیام کاربر
+        if correct_questions:
+            user_message += f"🔢 سوالات صحیح: {', '.join(map(str, correct_questions))}\n"
+        if wrong_questions:
+            user_message += f"🔢 سوالات غلط: {', '.join(map(str, wrong_questions))}\n"
+        if unanswered_questions_list:
+            user_message += f"🔢 سوالات بی‌پاسخ: {', '.join(map(str, unanswered_questions_list))}\n"
+        
+        user_message += f"\n💡 نکته: هر ۳ پاسخ اشتباه، معادل ۱ پاسخ صحیح نمره منفی دارد.\n\n"
+        user_message += f"با تشکر از مشارکت شما!"
         
         await context.bot.send_message(
             chat_id,
@@ -850,7 +931,7 @@ async def quiz_timeout(context: ContextTypes.DEFAULT_TYPE):
             ])
         )
         
-        logger.info(f"Quiz timeout handled for user {user_id}, score: {score}/{total_questions}")
+        logger.info(f"Quiz timeout handled for user {user_id}, score: {final_percentage:.2f}%")
         
     except Exception as e:
         logger.error(f"Error in quiz timeout: {e}")
@@ -1224,6 +1305,38 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await handle_contact(update, context)
     elif update.message.text:
         await handle_admin_text(update, context)
+async def show_detailed_results(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """نمایش نتایج دقیق کاربر"""
+    user_id = update.effective_user.id
+    
+    results = execute_query('''
+        SELECT q.title, r.score, r.correct_answers, r.wrong_answers, r.unanswered_questions, 
+               r.total_time, r.completed_at
+        FROM results r
+        JOIN quizzes q ON r.quiz_id = q.id
+        WHERE r.user_id = %s
+        ORDER BY r.completed_at DESC
+        LIMIT 10
+    ''', (user_id,))
+    
+    if not results:
+        await update.message.reply_text("📭 شما هنوز هیچ آزمونی نداده‌اید.")
+        return
+    
+    result_text = "📋 نتایج آزمون‌های شما:\n\n"
+    
+    for i, result in enumerate(results, 1):
+        title, score, correct, wrong, unanswered, total_time, completed_at = result
+        
+        time_str = f"{total_time // 60}:{total_time % 60:02d}"
+        completed_date = completed_at.strftime("%Y/%m/%d %H:%M")
+        
+        result_text += f"{i}. {title}\n"
+        result_text += f"   ✅ صحیح: {correct} | ❌ غلط: {wrong} | ⏸️ بی‌پاسخ: {unanswered}\n"
+        result_text += f"   📈 درصد: {score:.2f}% | ⏱ زمان: {time_str}\n"
+        result_text += f"   📅 تاریخ: {completed_date}\n\n"
+    
+    await update.message.reply_text(result_text)
 
 def main():
     """تابع اصلی اجرای ربات"""
@@ -1239,6 +1352,8 @@ def main():
     application.add_handler(MessageHandler(filters.PHOTO, handle_admin_photos))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     application.add_handler(CallbackQueryHandler(handle_callback))
+    # در تابع main، این هندلر را اضافه کنید:
+    application.add_handler(CommandHandler("results", show_detailed_results))
     
     # اجرای ربات
     print("🤖 ربات در حال اجرا است...")
