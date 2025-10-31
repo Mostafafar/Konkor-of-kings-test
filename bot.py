@@ -305,6 +305,115 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.error(f"Error sending message to admin: {e}")
     
     await show_main_menu(update, context)
+async def admin_broadcast_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """شروع فرآیند ارسال پیام همگانی"""
+    if update.effective_user.id != ADMIN_ID:
+        return
+    
+    context.user_data['admin_action'] = 'broadcasting'
+    
+    keyboard = [[InlineKeyboardButton("🔙 لغو", callback_data="admin_panel")]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.callback_query.edit_message_text(
+        "📢 ارسال پیام همگانی:\n\n"
+        "لطفاً پیام خود را ارسال کنید (متن، عکس، یا هر دو):\n\n"
+        "💡 نکته: می‌توانید متن به همراه عکس ارسال کنید.",
+        reply_markup=reply_markup
+    )
+
+async def handle_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """پردازش و ارسال پیام همگانی"""
+    if update.effective_user.id != ADMIN_ID:
+        return
+    
+    if 'admin_action' not in context.user_data or context.user_data['admin_action'] != 'broadcasting':
+        return
+    
+    # دریافت تمام کاربران
+    users = get_all_users()
+    if not users:
+        await update.message.reply_text("❌ هیچ کاربری برای ارسال پیام وجود ندارد!")
+        return
+    
+    total_users = len(users)
+    successful_sends = 0
+    failed_sends = 0
+    
+    # اطلاع رسانی شروع ارسال
+    progress_msg = await update.message.reply_text(
+        f"📤 شروع ارسال پیام به {total_users} کاربر...\n\n"
+        f"✅ موفق: 0\n"
+        f"❌ ناموفق: 0\n"
+        f"📊 پیشرفت: 0%"
+    )
+    
+    # ارسال به کاربران
+    for index, user in enumerate(users):
+        user_id = user[0]
+        
+        try:
+            # اگر پیام دارای عکس است
+            if update.message.photo:
+                photo_file = await update.message.photo[-1].get_file()
+                
+                # ارسال عکس با کپشن (اگر متن وجود دارد)
+                caption = update.message.caption if update.message.caption else None
+                await context.bot.send_photo(
+                    chat_id=user_id,
+                    photo=photo_file.file_id,
+                    caption=caption,
+                    parse_mode=ParseMode.MARKDOWN
+                )
+            
+            # اگر فقط متن است
+            elif update.message.text:
+                await context.bot.send_message(
+                    chat_id=user_id,
+                    text=update.message.text,
+                    parse_mode=ParseMode.MARKDOWN
+                )
+            
+            successful_sends += 1
+            
+        except Exception as e:
+            logger.error(f"Failed to send message to user {user_id}: {e}")
+            failed_sends += 1
+        
+        # بروزرسانی پیشرفت هر 10 کاربر
+        if (index + 1) % 10 == 0 or (index + 1) == total_users:
+            progress = ((index + 1) / total_users) * 100
+            try:
+                await progress_msg.edit_text(
+                    f"📤 ارسال پیام به کاربران...\n\n"
+                    f"✅ موفق: {successful_sends}\n"
+                    f"❌ ناموفق: {failed_sends}\n"
+                    f"📊 پیشرفت: {progress:.1f}%"
+                )
+            except:
+                pass
+        
+        # تاخیر کوچک برای جلوگیری از محدودیت تلگرام
+        await asyncio.sleep(0.1)
+    
+    # نتیجه نهایی
+    result_text = (
+        f"🎉 ارسال پیام همگانی تکمیل شد!\n\n"
+        f"📊 آمار ارسال:\n"
+        f"• 👥 کاربران کل: {total_users}\n"
+        f"• ✅ ارسال موفق: {successful_sends}\n"
+        f"• ❌ ارسال ناموفق: {failed_sends}\n"
+        f"• 📈 نرخ موفقیت: {(successful_sends/total_users)*100:.1f}%"
+    )
+    
+    keyboard = [[InlineKeyboardButton("🔙 بازگشت به پنل ادمین", callback_data="admin_panel")]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await progress_msg.edit_text(result_text, reply_markup=reply_markup)
+    
+    # پاک کردن وضعیت
+    if 'admin_action' in context.user_data:
+        del context.user_data['admin_action']
 
 async def handle_contact(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """پردازش شماره تلفن دریافتی"""
@@ -1306,8 +1415,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """مدیریت پیام‌های متنی"""
     if update.message.contact:
         await handle_contact(update, context)
-    elif update.message.text:
-        await handle_admin_text(update, context)
+    elif update.message.text or update.message.photo:
+        # بررسی اگر ادمین در حال ارسال پیام همگانی است
+        if (update.effective_user.id == ADMIN_ID and 
+            'admin_action' in context.user_data and 
+            context.user_data['admin_action'] == 'broadcasting'):
+            await handle_broadcast(update, context)
+        else:
+            await handle_admin_text(update, context)
 async def show_detailed_results(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """نمایش نتایج دقیق کاربر"""
     user_id = update.effective_user.id
