@@ -978,6 +978,7 @@ async def show_admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("📋 مدیریت آزمون‌ها", callback_data="admin_manage_quizzes")],
         [InlineKeyboardButton("👥 مشاهده کاربران", callback_data="admin_view_users")],
         [InlineKeyboardButton("📊 مشاهده نتایج", callback_data="admin_view_results")],
+        [InlineKeyboardButton("📢 ارسال پیام همگانی", callback_data="admin_broadcast")],  # این خط اضافه شود
         [InlineKeyboardButton("🔙 منوی اصلی", callback_data="main_menu")]
     ]
     
