@@ -416,6 +416,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data.startswith("toggle_quiz_"):
         quiz_id = int(data.split("_")[2])
         await toggle_quiz_status_handler(update, context, quiz_id)
+    elif data == "admin_broadcast":
+        await admin_broadcast_message(update, context)
 
 async def show_quiz_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """نمایش لیست آزمون‌های فعال"""
