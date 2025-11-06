@@ -1482,6 +1482,7 @@ def main():
     """تابع اصلی اجرای ربات"""
     # اتصال به دیتابیس
     init_database()
+    download_welcome_photo()
     
     # ساخت اپلیکیشن
     application = Application.builder().token(BOT_TOKEN).build()
