@@ -1242,7 +1242,10 @@ async def admin_view_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
     
-    text = "👥 لیست کاربران:\n\n"
+    # محاسبه تعداد کل کاربران
+    total_users = len(users)
+    
+    text = f"👥 لیست کاربران (تعداد کل: {total_users}):\n\n"
     for user in users[:20]:  # فقط 20 کاربر اول
         user_id, full_name, username, phone_number, registered_at = user
         text += f"👤 {full_name}\n"
