@@ -1519,4 +1519,4 @@ def main():
     
     # اجرای ربات
     print("🤖 ربات در حال اجرا است...")
-    application.run_polling()
+    application.run_polling(allowed_updates=Update.ALL_TYPES)
