@@ -277,7 +277,7 @@ def toggle_quiz_status(quiz_id: int):
 # توابع اصلی ربات
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """شروع ربات بدون درخواست شماره تلفن"""
+    """شروع ربات با پیام ویژه برای لینک مستقیم"""
     user = update.effective_user
     user_id = user.id
     
@@ -303,6 +303,48 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await context.bot.send_message(ADMIN_ID, admin_message)
         except Exception as e:
             logger.error(f"Error sending message to admin: {e}")
+    
+    # بررسی اینکه آیا کاربر از طریق لینک مستقیم آمده
+    if context.args and context.args[0] == 'start':
+        # ارسال پیام ویژه با عکس
+        welcome_message = (
+            "🎯قبل از آزمون اصلی، در محیطی رقابتی سطح خودت رو بسنج!\n\n"
+            "تو میدان ماز خودتو محک بزن!\n"
+            "مثل آزمون واقعی، همون زمان، همون شرایط 💪\n\n"
+            "📊 ویژگیای باحال آزمون:\n"
+            "• طراحی شبیه فضای آزمون\n"
+            "• زمان‌بندی واقعی\n"
+            "• مطابق برنامه قلمچی\n\n"
+            "🔥 قبل از آزمون اصلی، تو محیط رقابتی بدرخش!\n"
+            "• سطحت رو بسنج\n"
+            "• با بقیه مقایسه شو\n"
+            "• ضعف‌هات رو پیدا کن\n\n"
+            "🤖 حالا میتونی شروع کنی:"
+        )
+        
+        # ارسال عکس (فرض می‌کنیم عکس در پوشه photos با نام welcome.jpg ذخیره شده)
+        photo_path = os.path.join(PHOTOS_DIR, "welcome.jpg")
+        
+        try:
+            if os.path.exists(photo_path):
+                with open(photo_path, 'rb') as photo:
+                    await update.message.reply_photo(
+                        photo=photo,
+                        caption=welcome_message,
+                        parse_mode=ParseMode.MARKDOWN
+                    )
+            else:
+                # اگر عکس وجود ندارد، فقط متن ارسال شود
+                await update.message.reply_text(
+                    welcome_message,
+                    parse_mode=ParseMode.MARKDOWN
+                )
+        except Exception as e:
+            logger.error(f"Error sending welcome photo: {e}")
+            await update.message.reply_text(
+                welcome_message,
+                parse_mode=ParseMode.MARKDOWN
+            )
     
     await show_main_menu(update, context)
 async def admin_broadcast_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1470,12 +1512,8 @@ def main():
     application.add_handler(MessageHandler(filters.PHOTO, handle_admin_photos))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     application.add_handler(CallbackQueryHandler(handle_callback))
-    # در تابع main، این هندلر را اضافه کنید:
     application.add_handler(CommandHandler("results", show_detailed_results))
     
     # اجرای ربات
     print("🤖 ربات در حال اجرا است...")
     application.run_polling()
-
-if __name__ == "__main__":
-    main()
