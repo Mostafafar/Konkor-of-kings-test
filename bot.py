@@ -23,6 +23,35 @@ from telegram.ext import (
     filters
 )
 from telegram.constants import ParseMode
+import requests
+
+def download_welcome_photo():
+    """دانلود عکس از گیت‌هاب"""
+    photo_url = "https://raw.githubusercontent.com/username/your-repo/main/Welcome.jpg"
+    local_path = os.path.join(PHOTOS_DIR, "welcome.jpg")
+    
+    # اگر قبلاً دانلود شده، نیاز نیست دوباره دانلود کنیم
+    if os.path.exists(local_path):
+        return True
+        
+    try:
+        response = requests.get(photo_url, timeout=10)
+        if response.status_code == 200:
+            with open(local_path, 'wb') as f:
+                f.write(response.content)
+            logger.info("Welcome photo downloaded successfully")
+            return True
+        else:
+            logger.error(f"Failed to download photo. Status code: {response.status_code}")
+            return False
+    except Exception as e:
+        logger.error(f"Error downloading welcome photo: {e}")
+        return False
+
+# در تابع main اضافه کنید:
+
+    
+    # بقیه کدها...
 
 # تنظیمات دیتابیس PostgreSQL
 DB_CONFIG = {
@@ -1495,6 +1524,9 @@ def main():
     """تابع اصلی اجرای ربات"""
     # اتصال به دیتابیس
     init_database()
+    
+    # دانلود عکس خوش‌آمدگویی
+    download_welcome_photo()
     
     # ساخت اپلیکیشن
     application = Application.builder().token(BOT_TOKEN).build()
