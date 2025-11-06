@@ -1482,11 +1482,11 @@ def main():
     """تابع اصلی اجرای ربات"""
     # اتصال به دیتابیس
     init_database()
-    download_welcome_photo()
-    
+    download_welcome_photo()  # دانلود عکس خوش‌آمدگویی
+
     # ساخت اپلیکیشن
     application = Application.builder().token(BOT_TOKEN).build()
-    
+
     # اضافه کردن هندلرها
     application.add_handler(CommandHandler("start", start))
     application.add_handler(MessageHandler(filters.CONTACT, handle_contact))
@@ -1494,7 +1494,7 @@ def main():
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     application.add_handler(CallbackQueryHandler(handle_callback))
     application.add_handler(CommandHandler("results", show_detailed_results))
-    
-    # اجرای ربات
-    print("🤖 ربات در حال اجرا است...")
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
+
+    # اجرای ربات — بدون allowed_updates
+    print("ربات در حال اجرا است...")
+    application.run_polling()
