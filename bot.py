@@ -322,25 +322,28 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "🤖 حالا میتونی شروع کنی:"
         )
         
-        # ارسال عکس (فرض می‌کنیم عکس در پوشه photos با نام welcome.jpg ذخیره شده)
-        photo_path = os.path.join(PHOTOS_DIR, "welcome.jpg")
+        # بررسی وجود عکس با نام‌های مختلف
+        photo_found = False
+        possible_names = ["welcome.jpg", "Welcome.jpg", "WELCOME.jpg"]
         
-        try:
+        for photo_name in possible_names:
+            photo_path = os.path.join(PHOTOS_DIR, photo_name)
             if os.path.exists(photo_path):
-                with open(photo_path, 'rb') as photo:
-                    await update.message.reply_photo(
-                        photo=photo,
-                        caption=welcome_message,
-                        parse_mode=ParseMode.MARKDOWN
-                    )
-            else:
-                # اگر عکس وجود ندارد، فقط متن ارسال شود
-                await update.message.reply_text(
-                    welcome_message,
-                    parse_mode=ParseMode.MARKDOWN
-                )
-        except Exception as e:
-            logger.error(f"Error sending welcome photo: {e}")
+                try:
+                    with open(photo_path, 'rb') as photo:
+                        await update.message.reply_photo(
+                            photo=photo,
+                            caption=welcome_message,
+                            parse_mode=ParseMode.MARKDOWN
+                        )
+                    photo_found = True
+                    break
+                except Exception as e:
+                    logger.error(f"Error sending photo {photo_name}: {e}")
+                    continue
+        
+        # اگر عکس پیدا نشد یا ارسال نشد، فقط متن ارسال شود
+        if not photo_found:
             await update.message.reply_text(
                 welcome_message,
                 parse_mode=ParseMode.MARKDOWN
