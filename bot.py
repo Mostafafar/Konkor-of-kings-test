@@ -277,38 +277,51 @@ def toggle_quiz_status(quiz_id: int):
 # توابع اصلی ربات
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """شروع ربات با پیام ویژه برای لینک مستقیم"""
     user = update.effective_user
     user_id = user.id
-
+    
     # ثبت کاربر (همیشه)
     user_data = get_user(user_id)
     if not user_data:
         add_user(user_id, "", user.username, user.full_name)
-        # اطلاع به ادمین...
-
-    # تشخیص لینک مستقیم (حتی اگر args خالی باشه)
-    is_direct_link = update.message and "/start" in update.message.text
-
-    if is_direct_link:
-        # پیام و عکس خاص
+        
+        # اطلاع به ادمین
+        admin_message = (
+            "👤 کاربر جدید ثبت نام کرد:\n"
+            f"🆔 آیدی: {user.id}\n"
+            f"👤 نام: {user.full_name}\n"
+            f"🔗 یوزرنیم: @{user.username if user.username else 'ندارد'}"
+        )
+        
+        try:
+            await context.bot.send_message(ADMIN_ID, admin_message)
+        except Exception as e:
+            logger.error(f"Error sending message to admin: {e}")
+    
+    # تشخیص لینک مستقیم (با پارامتر start)
+    has_start_param = context.args and len(context.args) > 0
+    
+    if has_start_param:
+        # پیام و عکس خاص برای لینک مستقیم
         welcome_message = (
-            "قبل از آزمون اصلی، در محیطی رقابتی سطح خودت رو بسنج!\n\n"
+            "🎯 قبل از آزمون اصلی، در محیطی رقابتی سطح خودت رو بسنج!\n\n"
             "تو میدان ماز خودتو محک بزن!\n"
-            "مثل آزمون واقعی، همون زمان، همون شرایط\n\n"
-            "ویژگیای باحال آزمون:\n"
+            "مثل آزمون واقعی، همون زمان، همون شرایط 💪\n\n"
+            "📊 ویژگیای باحال آزمون:\n"
             "• طراحی شبیه فضای آزمون\n"
             "• زمان‌بندی واقعی\n"
             "• مطابق برنامه قلمچی\n\n"
-            "قبل از آزمون اصلی، تو محیط رقابتی بدرخش!\n"
+            "🔥 قبل از آزمون اصلی، تو محیط رقابتی بدرخش!\n"
             "• سطحت رو بسنج\n"
             "• با بقیه مقایسه شو\n"
             "• ضعف‌هات رو پیدا کن\n\n"
-            "حالا میتونی شروع کنی:"
+            "🤖 حالا میتونی شروع کنی:"
         )
-
-        # مسیر عکس (محلی یا گیت‌هاب)
+        
+        # مسیر عکس
         photo_path = os.path.join(PHOTOS_DIR, "welcome.jpg")
-
+        
         if os.path.exists(photo_path):
             try:
                 with open(photo_path, 'rb') as photo:
@@ -324,7 +337,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(welcome_message, parse_mode=ParseMode.MARKDOWN)
     else:
         # اگر از منو یا دستور معمولی اومد
-        await update.message.reply_text("به ربات آزمون خوش آمدید!")
+        await update.message.reply_text("🤖 به ربات آزمون خوش آمدید!")
 
     await show_main_menu(update, context)
 async def admin_broadcast_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1482,11 +1495,10 @@ def main():
     """تابع اصلی اجرای ربات"""
     # اتصال به دیتابیس
     init_database()
-    download_welcome_photo()  # دانلود عکس خوش‌آمدگویی
-
+    
     # ساخت اپلیکیشن
     application = Application.builder().token(BOT_TOKEN).build()
-
+    
     # اضافه کردن هندلرها
     application.add_handler(CommandHandler("start", start))
     application.add_handler(MessageHandler(filters.CONTACT, handle_contact))
@@ -1494,7 +1506,10 @@ def main():
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     application.add_handler(CallbackQueryHandler(handle_callback))
     application.add_handler(CommandHandler("results", show_detailed_results))
-
-    # اجرای ربات — بدون allowed_updates
-    print("ربات در حال اجرا است...")
+    
+    # اجرای ربات
+    print("🤖 ربات در حال اجرا است...")
     application.run_polling()
+
+if __name__ == "__main__":
+    main()
