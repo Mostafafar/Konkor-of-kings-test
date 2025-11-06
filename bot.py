@@ -277,78 +277,55 @@ def toggle_quiz_status(quiz_id: int):
 # توابع اصلی ربات
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """شروع ربات با پیام ویژه برای لینک مستقیم"""
     user = update.effective_user
     user_id = user.id
-    
-    # بررسی وجود کاربر و ثبت خودکار اگر وجود ندارد
+
+    # ثبت کاربر (همیشه)
     user_data = get_user(user_id)
     if not user_data:
-        add_user(
-            user_id, 
-            "",  # شماره تلفن خالی
-            user.username, 
-            user.full_name
-        )
-        
-        # اطلاع به ادمین
-        admin_message = (
-            "👤 کاربر جدید ثبت نام کرد:\n"
-            f"🆔 آیدی: {user.id}\n"
-            f"👤 نام: {user.full_name}\n"
-            f"🔗 یوزرنیم: @{user.username if user.username else 'ندارد'}"
-        )
-        
-        try:
-            await context.bot.send_message(ADMIN_ID, admin_message)
-        except Exception as e:
-            logger.error(f"Error sending message to admin: {e}")
-    
-    # بررسی اینکه آیا کاربر از طریق لینک مستقیم آمده
-    if context.args and context.args[0] == 'start':
-        # ارسال پیام ویژه با عکس
+        add_user(user_id, "", user.username, user.full_name)
+        # اطلاع به ادمین...
+
+    # تشخیص لینک مستقیم (حتی اگر args خالی باشه)
+    is_direct_link = update.message and "/start" in update.message.text
+
+    if is_direct_link:
+        # پیام و عکس خاص
         welcome_message = (
-            "🎯قبل از آزمون اصلی، در محیطی رقابتی سطح خودت رو بسنج!\n\n"
+            "قبل از آزمون اصلی، در محیطی رقابتی سطح خودت رو بسنج!\n\n"
             "تو میدان ماز خودتو محک بزن!\n"
-            "مثل آزمون واقعی، همون زمان، همون شرایط 💪\n\n"
-            "📊 ویژگیای باحال آزمون:\n"
+            "مثل آزمون واقعی، همون زمان، همون شرایط\n\n"
+            "ویژگیای باحال آزمون:\n"
             "• طراحی شبیه فضای آزمون\n"
             "• زمان‌بندی واقعی\n"
             "• مطابق برنامه قلمچی\n\n"
-            "🔥 قبل از آزمون اصلی، تو محیط رقابتی بدرخش!\n"
+            "قبل از آزمون اصلی، تو محیط رقابتی بدرخش!\n"
             "• سطحت رو بسنج\n"
             "• با بقیه مقایسه شو\n"
             "• ضعف‌هات رو پیدا کن\n\n"
-            "🤖 حالا میتونی شروع کنی:"
+            "حالا میتونی شروع کنی:"
         )
-        
-        # بررسی وجود عکس با نام‌های مختلف
-        photo_found = False
-        possible_names = ["welcome.jpg", "Welcome.jpg", "WELCOME.jpg"]
-        
-        for photo_name in possible_names:
-            photo_path = os.path.join(PHOTOS_DIR, photo_name)
-            if os.path.exists(photo_path):
-                try:
-                    with open(photo_path, 'rb') as photo:
-                        await update.message.reply_photo(
-                            photo=photo,
-                            caption=welcome_message,
-                            parse_mode=ParseMode.MARKDOWN
-                        )
-                    photo_found = True
-                    break
-                except Exception as e:
-                    logger.error(f"Error sending photo {photo_name}: {e}")
-                    continue
-        
-        # اگر عکس پیدا نشد یا ارسال نشد، فقط متن ارسال شود
-        if not photo_found:
-            await update.message.reply_text(
-                welcome_message,
-                parse_mode=ParseMode.MARKDOWN
-            )
-    
+
+        # مسیر عکس (محلی یا گیت‌هاب)
+        photo_path = os.path.join(PHOTOS_DIR, "welcome.jpg")
+
+        if os.path.exists(photo_path):
+            try:
+                with open(photo_path, 'rb') as photo:
+                    await update.message.reply_photo(
+                        photo=photo,
+                        caption=welcome_message,
+                        parse_mode=ParseMode.MARKDOWN
+                    )
+            except Exception as e:
+                logger.error(f"Error sending welcome photo: {e}")
+                await update.message.reply_text(welcome_message, parse_mode=ParseMode.MARKDOWN)
+        else:
+            await update.message.reply_text(welcome_message, parse_mode=ParseMode.MARKDOWN)
+    else:
+        # اگر از منو یا دستور معمولی اومد
+        await update.message.reply_text("به ربات آزمون خوش آمدید!")
+
     await show_main_menu(update, context)
 async def admin_broadcast_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """شروع فرآیند ارسال پیام همگانی"""
