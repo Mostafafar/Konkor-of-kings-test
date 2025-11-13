@@ -1141,7 +1141,7 @@ def main():
     application = Application.builder().token(BOT_TOKEN).build()
     
     application.add_handler(CommandHandler("start", start))
-    application.add_handler(MessageHandler(filters.CONTACT, handle_contact))
+    
     application.add_handler(InlineQueryHandler(inline_query_handler))
     application.add_handler(ChosenInlineResultHandler(chosen_inline_result_handler))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
