@@ -430,6 +430,59 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("🤖 به ربات آزمون خوش آمدید!")
 
     await show_main_menu(update, context)
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle regular text messages"""
+    user_id = update.effective_user.id
+    text = update.message.text
+    
+    # Check if user is in the middle of custom quiz creation
+    if 'custom_quiz' in context.user_data:
+        quiz_data = context.user_data['custom_quiz']
+        
+        if quiz_data.get('step') == 'waiting_for_topic_name':
+            # Handle topic name input
+            topic_name = text.strip()
+            if len(topic_name) < 2:
+                await update.message.reply_text("❌ نام مبحث باید حداقل ۲ کاراکتر باشد. لطفاً مجدداً وارد کنید:")
+                return
+            
+            # Add topic to database
+            result = add_topic(topic_name)
+            if result:
+                await update.message.reply_text(f"✅ مبحث '{topic_name}' با موفقیت اضافه شد!")
+            else:
+                await update.message.reply_text("❌ خطا در افزودن مبحث. ممکن است این مبحث از قبل وجود داشته باشد.")
+            
+            # Return to admin panel
+            context.user_data['custom_quiz']['step'] = None
+            await show_admin_panel_from_message(update, context)
+            return
+    
+    # Default response for other messages
+    await update.message.reply_text(
+        "🤖 از دکمه‌های منو برای navigation استفاده کنید.",
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📋 منوی اصلی", callback_data="main_menu")]])
+    )
+
+async def show_admin_panel_from_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show admin panel for message-based interactions"""
+    if update.effective_user.id != ADMIN_ID:
+        await update.message.reply_text("دسترسی denied!")
+        return
+    
+    keyboard = [
+        [InlineKeyboardButton("➕ ایجاد آزمون جدید", callback_data="admin_create_quiz")],
+        [InlineKeyboardButton("📋 مدیریت آزمون‌ها", callback_data="admin_manage_quizzes")],
+        [InlineKeyboardButton("📚 مدیریت مباحث", callback_data="admin_manage_topics")],
+        [InlineKeyboardButton("❓ افزودن سوال به بانک", callback_data="admin_add_question")],
+        [InlineKeyboardButton("🏆 مشاهده رتبه‌بندی", callback_data="admin_quiz_rankings")],
+        [InlineKeyboardButton("👥 مشاهده کاربران", callback_data="admin_view_users")],
+        [InlineKeyboardButton("📊 مشاهده نتایج", callback_data="admin_view_results")],
+        [InlineKeyboardButton("🔙 منوی اصلی", callback_data="main_menu")]
+    ]
+    
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text("🔧 پنل مدیریت ادمین:", reply_markup=reply_markup)
 
 async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
