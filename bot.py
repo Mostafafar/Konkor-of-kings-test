@@ -1818,7 +1818,7 @@ def main():
     
     # اضافه کردن هندلرها
     application.add_handler(CommandHandler("start", start))
-    application.add_handler(MessageHandler(filters.CONTACT, handle_contact))
+    
     application.add_handler(MessageHandler(filters.PHOTO, handle_admin_photos))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     application.add_handler(CallbackQueryHandler(handle_callback))
