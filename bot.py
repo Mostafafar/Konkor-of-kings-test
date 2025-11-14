@@ -666,64 +666,61 @@ async def inline_query_handler(update: Update, context: ContextTypes.DEFAULT_TYP
             ))
     
     await update.inline_query.answer(results, cache_time=1)
+
 async def chosen_inline_result_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     result_id = update.chosen_inline_result.result_id
     user_id = update.chosen_inline_result.from_user.id
+    query = update.chosen_inline_result.query
 
-    # اگر ادمین در حال افزودن سوال به بانک است
-    if user_id == ADMIN_ID and 'admin_action' in context.user_data and context.user_data['admin_action'] == 'adding_question_to_bank':
+    logger.info(f"Chosen inline result - User: {user_id}, Result ID: {result_id}, Query: {query}")
+
+    # حالت ادمین - افزودن سوال به بانک
+    if user_id == ADMIN_ID:
+        # بررسی اینکه آیا ادمین در حالت افزودن سوال است
+        is_adding_question = (
+            'admin_action' in context.user_data and 
+            context.user_data['admin_action'] == 'adding_question_to_bank'
+        )
+        
+        if not is_adding_question:
+            # اگر نه، بررسی کنیم که آیا query مربوط به مباحث است
+            if any(keyword in query.lower() for keyword in ['مبحث', 'topic', 'درس', 'بحث']):
+                logger.info(f"Admin {user_id} selected topic without proper state, setting up flow...")
+                # مستقیم فرآیند را شروع کنیم
+                success = await handle_admin_question_bank_flow(update, context, result_id)
+                return
+            else:
+                # حالت دیگر برای ادمین
+                return
+        
+        # اگر در حالت افزودن سوال است، ادامه دهید
+        success = await handle_admin_question_bank_flow(update, context, result_id)
+        return
+
+    # حالت کاربر عادی - آزمون سفارشی (کد قبلی)
+    if 'custom_quiz' in context.user_data:
         try:
-            # استفاده از تابع کمکی برای تنظیم جریان
-            success = await continue_question_bank_flow(update, context, result_id)
+            topic_id = int(result_id)
+            if topic_id not in context.user_data['custom_quiz']['selected_topics']:
+                context.user_data['custom_quiz']['selected_topics'].append(topic_id)
             
-            if not success:
-                # پاک کردن حالت در صورت خطا
-                if 'question_bank_data' in context.user_data:
-                    del context.user_data['question_bank_data']
-                if 'admin_action' in context.user_data:
-                    del context.user_data['admin_action']
-                    
-        except Exception as e:
-            logger.error(f"Error in chosen_inline_result_handler for admin: {e}")
+            selected_topics = context.user_data['custom_quiz']['selected_topics']
+            topics_text = "\n".join([get_topic_by_id(tid)[0][1] for tid in selected_topics if get_topic_by_id(tid)])
+            
+            keyboard = [
+                [InlineKeyboardButton("✅ ادامه تنظیمات", callback_data="custom_quiz_settings")],
+                [InlineKeyboardButton("📚 افزودن مبحث دیگر", switch_inline_query_current_chat="")],
+                [InlineKeyboardButton("🔙 بازگشت", callback_data="main_menu")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
             await context.bot.send_message(
                 chat_id=user_id,
-                text="❌ خطا در پردازش انتخاب! لطفاً دوباره تلاش کنید."
+                text=f"📚 مباحث انتخاب شده:\n{topics_text}\n\nتعداد: {len(selected_topics)} مبحث",
+                reply_markup=reply_markup
             )
-            # پاک کردن حالت در صورت خطا
-            if 'question_bank_data' in context.user_data:
-                del context.user_data['question_bank_data']
-            if 'admin_action' in context.user_data:
-                del context.user_data['admin_action']
-        return
-    
-    # بقیه کد برای کاربران عادی (بدون تغییر)
-    if 'custom_quiz' not in context.user_data:
-        return
-    
-    try:
-        # افزودن مبحث به لیست انتخاب‌شده
-        topic_id = int(result_id)
-        if topic_id not in context.user_data['custom_quiz']['selected_topics']:
-            context.user_data['custom_quiz']['selected_topics'].append(topic_id)
-        
-        # نمایش مباحث انتخاب شده
-        selected_topics = context.user_data['custom_quiz']['selected_topics']
-        topics_text = "\n".join([get_topic_by_id(tid)[0][1] for tid in selected_topics if get_topic_by_id(tid)])
-        
-        keyboard = [
-            [InlineKeyboardButton("✅ ادامه تنظیمات", callback_data="custom_quiz_settings")],
-            [InlineKeyboardButton("📚 افزودن مبحث دیگر", switch_inline_query_current_chat="")],
-            [InlineKeyboardButton("🔙 بازگشت", callback_data="main_menu")]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        
-        await context.bot.send_message(
-            chat_id=user_id,
-            text=f"📚 مباحث انتخاب شده:\n{topics_text}\n\nتعداد: {len(selected_topics)} مبحث",
-            reply_markup=reply_markup
-        )
-    except Exception as e:
-        logger.error(f"Error in chosen_inline_result_handler for user quiz: {e}")
+        except Exception as e:
+            logger.error(f"Error in chosen_inline_result_handler for user quiz: {e}")
 async def custom_quiz_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['custom_quiz']['step'] = 'settings'
     
