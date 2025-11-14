@@ -630,28 +630,48 @@ async def chosen_inline_result_handler(update: Update, context: ContextTypes.DEF
     
     # اگر ادمین در حال افزودن سوال به بانک است
     if user_id == ADMIN_ID and 'admin_action' in context.user_data and context.user_data['admin_action'] == 'adding_question_to_bank':
-        # حذف پیشوند topic_ اگر وجود دارد
-        topic_id = int(result_id.replace("topic_", ""))
-        
-        # اطمینان از وجود question_bank_data
-        if 'question_bank_data' not in context.user_data:
-            context.user_data['question_bank_data'] = {}
-        
-        context.user_data['question_bank_data']['topic_id'] = topic_id
-        
-        topic_info = get_topic_by_id(topic_id)
-        if topic_info:
-            topic_name = topic_info[0][1]
+        try:
+            # حذف پیشوند topic_ اگر وجود دارد
+            if result_id.startswith("topic_"):
+                topic_id = int(result_id.replace("topic_", ""))
+            else:
+                topic_id = int(result_id)
             
+            # اطمینان از وجود question_bank_data
+            if 'question_bank_data' not in context.user_data:
+                context.user_data['question_bank_data'] = {}
+            
+            context.user_data['question_bank_data']['topic_id'] = topic_id
+            
+            topic_info = get_topic_by_id(topic_id)
+            if topic_info:
+                topic_name = topic_info[0][1]
+                
+                # ارسال پیام تأیید
+                await context.bot.send_message(
+                    chat_id=user_id,
+                    text=f"✅ مبحث انتخاب شد: {topic_name}\n\n"
+                         f"مرحله ۲/۳: ارسال عکس سوال\n\n"
+                         f"📸 لطفاً عکس سوال را ارسال کنید:"
+                )
+                
+                logger.info(f"Admin selected topic {topic_id} ({topic_name}) for question bank")
+            else:
+                await context.bot.send_message(
+                    chat_id=user_id,
+                    text="❌ خطا در دریافت اطلاعات مبحث! لطفاً دوباره تلاش کنید."
+                )
+                # پاک کردن داده‌های موقت
+                if 'question_bank_data' in context.user_data:
+                    del context.user_data['question_bank_data']
+                if 'admin_action' in context.user_data:
+                    del context.user_data['admin_action']
+                    
+        except Exception as e:
+            logger.error(f"Error in chosen_inline_result_handler: {e}")
             await context.bot.send_message(
                 chat_id=user_id,
-                text=f"✅ مبحث انتخاب شد: {topic_name}\n\n"
-                     f"📸 لطفاً عکس سوال را ارسال کنید:"
-            )
-        else:
-            await context.bot.send_message(
-                chat_id=user_id,
-                text="❌ خطا در دریافت اطلاعات مبحث! لطفاً دوباره تلاش کنید."
+                text="❌ خطا در پردازش انتخاب! لطفاً دوباره تلاش کنید."
             )
         return
     
@@ -659,27 +679,30 @@ async def chosen_inline_result_handler(update: Update, context: ContextTypes.DEF
     if 'custom_quiz' not in context.user_data:
         return
     
-    # افزودن مبحث به لیست انتخاب‌شده
-    topic_id = int(result_id)
-    if topic_id not in context.user_data['custom_quiz']['selected_topics']:
-        context.user_data['custom_quiz']['selected_topics'].append(topic_id)
-    
-    # نمایش مباحث انتخاب شده
-    selected_topics = context.user_data['custom_quiz']['selected_topics']
-    topics_text = "\n".join([get_topic_by_id(tid)[0][1] for tid in selected_topics if get_topic_by_id(tid)])
-    
-    keyboard = [
-        [InlineKeyboardButton("✅ ادامه تنظیمات", callback_data="custom_quiz_settings")],
-        [InlineKeyboardButton("📚 افزودن مبحث دیگر", switch_inline_query_current_chat="")],
-        [InlineKeyboardButton("🔙 بازگشت", callback_data="main_menu")]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    await context.bot.send_message(
-        chat_id=user_id,
-        text=f"📚 مباحث انتخاب شده:\n{topics_text}\n\nتعداد: {len(selected_topics)} مبحث",
-        reply_markup=reply_markup
-    )
+    try:
+        # افزودن مبحث به لیست انتخاب‌شده
+        topic_id = int(result_id)
+        if topic_id not in context.user_data['custom_quiz']['selected_topics']:
+            context.user_data['custom_quiz']['selected_topics'].append(topic_id)
+        
+        # نمایش مباحث انتخاب شده
+        selected_topics = context.user_data['custom_quiz']['selected_topics']
+        topics_text = "\n".join([get_topic_by_id(tid)[0][1] for tid in selected_topics if get_topic_by_id(tid)])
+        
+        keyboard = [
+            [InlineKeyboardButton("✅ ادامه تنظیمات", callback_data="custom_quiz_settings")],
+            [InlineKeyboardButton("📚 افزودن مبحث دیگر", switch_inline_query_current_chat="")],
+            [InlineKeyboardButton("🔙 بازگشت", callback_data="main_menu")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await context.bot.send_message(
+            chat_id=user_id,
+            text=f"📚 مباحث انتخاب شده:\n{topics_text}\n\nتعداد: {len(selected_topics)} مبحث",
+            reply_markup=reply_markup
+        )
+    except Exception as e:
+        logger.error(f"Error in chosen_inline_result_handler for user quiz: {e}")
 async def custom_quiz_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['custom_quiz']['step'] = 'settings'
     
