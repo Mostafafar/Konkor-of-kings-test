@@ -58,6 +58,28 @@ logger = logging.getLogger(__name__)
 # متغیرهای سراسری
 db_connection = None
 
+def download_welcome_photo():
+    """دانلود عکس از گیت‌هاب"""
+    photo_url = "https://raw.githubusercontent.com/username/your-repo/main/Welcome.jpg"
+    local_path = os.path.join(PHOTOS_DIR, "welcome.jpg")
+    
+    if os.path.exists(local_path):
+        return True
+        
+    try:
+        response = requests.get(photo_url, timeout=10)
+        if response.status_code == 200:
+            with open(local_path, 'wb') as f:
+                f.write(response.content)
+            logger.info("Welcome photo downloaded successfully")
+            return True
+        else:
+            logger.error(f"Failed to download photo. Status code: {response.status_code}")
+            return False
+    except Exception as e:
+        logger.error(f"Error downloading welcome photo: {e}")
+        return False
+
 def init_database():
     """اتصال به دیتابیس و ایجاد جداول"""
     global db_connection
@@ -225,6 +247,9 @@ def get_active_quizzes():
 # توابع مباحث
 def get_all_topics():
     return execute_query("SELECT id, name, description FROM topics WHERE is_active = TRUE ORDER BY name")
+
+def get_topic_by_id(topic_id: int):
+    return execute_query("SELECT id, name, description FROM topics WHERE id = %s AND is_active = TRUE", (topic_id,))
 
 def get_topic_by_name(name: str):
     return execute_query("SELECT id, name, description FROM topics WHERE name = %s AND is_active = TRUE", (name,))
@@ -430,59 +455,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("🤖 به ربات آزمون خوش آمدید!")
 
     await show_main_menu(update, context)
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle regular text messages"""
-    user_id = update.effective_user.id
-    text = update.message.text
-    
-    # Check if user is in the middle of custom quiz creation
-    if 'custom_quiz' in context.user_data:
-        quiz_data = context.user_data['custom_quiz']
-        
-        if quiz_data.get('step') == 'waiting_for_topic_name':
-            # Handle topic name input
-            topic_name = text.strip()
-            if len(topic_name) < 2:
-                await update.message.reply_text("❌ نام مبحث باید حداقل ۲ کاراکتر باشد. لطفاً مجدداً وارد کنید:")
-                return
-            
-            # Add topic to database
-            result = add_topic(topic_name)
-            if result:
-                await update.message.reply_text(f"✅ مبحث '{topic_name}' با موفقیت اضافه شد!")
-            else:
-                await update.message.reply_text("❌ خطا در افزودن مبحث. ممکن است این مبحث از قبل وجود داشته باشد.")
-            
-            # Return to admin panel
-            context.user_data['custom_quiz']['step'] = None
-            await show_admin_panel_from_message(update, context)
-            return
-    
-    # Default response for other messages
-    await update.message.reply_text(
-        "🤖 از دکمه‌های منو برای navigation استفاده کنید.",
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📋 منوی اصلی", callback_data="main_menu")]])
-    )
-
-async def show_admin_panel_from_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Show admin panel for message-based interactions"""
-    if update.effective_user.id != ADMIN_ID:
-        await update.message.reply_text("دسترسی denied!")
-        return
-    
-    keyboard = [
-        [InlineKeyboardButton("➕ ایجاد آزمون جدید", callback_data="admin_create_quiz")],
-        [InlineKeyboardButton("📋 مدیریت آزمون‌ها", callback_data="admin_manage_quizzes")],
-        [InlineKeyboardButton("📚 مدیریت مباحث", callback_data="admin_manage_topics")],
-        [InlineKeyboardButton("❓ افزودن سوال به بانک", callback_data="admin_add_question")],
-        [InlineKeyboardButton("🏆 مشاهده رتبه‌بندی", callback_data="admin_quiz_rankings")],
-        [InlineKeyboardButton("👥 مشاهده کاربران", callback_data="admin_view_users")],
-        [InlineKeyboardButton("📊 مشاهده نتایج", callback_data="admin_view_results")],
-        [InlineKeyboardButton("🔙 منوی اصلی", callback_data="main_menu")]
-    ]
-    
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text("🔧 پنل مدیریت ادمین:", reply_markup=reply_markup)
 
 async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
@@ -527,6 +499,15 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         question_index = int(parts[2])
         answer = int(parts[3])
         await handle_answer(update, context, quiz_id, question_index, answer)
+    elif data.startswith("mark_"):
+        parts = data.split("_")
+        question_index = int(parts[2])
+        await toggle_mark(update, context, question_index)
+    elif data.startswith("nav_"):
+        new_index = int(data.split("_")[1])
+        await navigate_to_question(update, context, new_index)
+    elif data == "review_marked":
+        await review_marked_questions(update, context)
     elif data.startswith("submit_"):
         quiz_id = int(data.split("_")[1])
         await submit_quiz(update, context, quiz_id)
@@ -543,9 +524,42 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "admin_manage_topics":
         await admin_manage_topics(update, context)
     elif data == "admin_add_question":
-        await admin_add_question(update, context)
+        await admin_add_question_to_bank(update, context)
     elif data == "admin_quiz_rankings":
         await admin_quiz_rankings(update, context)
+    elif data == "admin_broadcast":
+        await admin_broadcast_message(update, context)
+    elif data == "confirm_add_questions":
+        await start_adding_questions(update, context)
+    elif data == "add_another_question":
+        await start_adding_questions(update, context)
+    elif data.startswith("toggle_quiz_"):
+        quiz_id = int(data.split("_")[2])
+        await toggle_quiz_status_handler(update, context, quiz_id)
+    elif data.startswith("quiz_ranking_"):
+        quiz_id = int(data.split("_")[2])
+        await show_quiz_rankings(update, context, quiz_id)
+    elif data == "custom_quiz_settings":
+        await custom_quiz_settings(update, context)
+    elif data.startswith("set_count_"):
+        count = int(data.split("_")[2])
+        if 'custom_quiz' in context.user_data:
+            context.user_data['custom_quiz']['settings']['count'] = count
+        await custom_quiz_settings(update, context)
+    elif data.startswith("set_time_"):
+        time_limit = int(data.split("_")[2])
+        if 'custom_quiz' in context.user_data:
+            context.user_data['custom_quiz']['settings']['time_limit'] = time_limit
+        await custom_quiz_settings(update, context)
+    elif data.startswith("set_difficulty_"):
+        difficulty = data.split("_")[2]
+        if 'custom_quiz' in context.user_data:
+            context.user_data['custom_quiz']['settings']['difficulty'] = difficulty
+        await custom_quiz_settings(update, context)
+    elif data == "generate_custom_quiz":
+        await generate_custom_quiz(update, context)
+    elif data == "admin_add_topic":
+        await admin_add_topic(update, context)
 
 # ساخت آزمون سفارشی
 async def start_custom_quiz_creation(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -572,18 +586,32 @@ async def inline_query_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     query = update.inline_query.query
     results = []
     
-    topics = get_all_topics()
-    
-    for topic in topics:
-        topic_id, name, description = topic
-        results.append(InlineQueryResultArticle(
-            id=str(topic_id),
-            title=name,
-            description=description or "بدون توضیح",
-            input_message_content=InputTextMessageContent(
-                f"مبحث انتخاب شده: {name}"
-            )
-        ))
+    # اگر کاربر ادمین است و در حال افزودن سوال به بانک است
+    if update.effective_user.id == ADMIN_ID and 'admin_action' in context.user_data and context.user_data['admin_action'] == 'adding_question_to_bank':
+        topics = get_all_topics()
+        for topic in topics:
+            topic_id, name, description = topic
+            results.append(InlineQueryResultArticle(
+                id=f"topic_{topic_id}",
+                title=name,
+                description=description or "بدون توضیح",
+                input_message_content=InputTextMessageContent(
+                    f"مبحث انتخاب شده: {name}"
+                )
+            ))
+    else:
+        # حالت عادی برای کاربران
+        topics = get_all_topics()
+        for topic in topics:
+            topic_id, name, description = topic
+            results.append(InlineQueryResultArticle(
+                id=str(topic_id),
+                title=name,
+                description=description or "بدون توضیح",
+                input_message_content=InputTextMessageContent(
+                    f"مبحث انتخاب شده: {name}"
+                )
+            ))
     
     await update.inline_query.answer(results)
 
@@ -591,6 +619,24 @@ async def chosen_inline_result_handler(update: Update, context: ContextTypes.DEF
     result_id = update.chosen_inline_result.result_id
     user_id = update.chosen_inline_result.from_user.id
     
+    # اگر ادمین در حال افزودن سوال به بانک است
+    if user_id == ADMIN_ID and 'admin_action' in context.user_data and context.user_data['admin_action'] == 'adding_question_to_bank':
+        if result_id.startswith("topic_"):
+            topic_id = int(result_id.split("_")[1])
+            context.user_data['question_bank_data']['topic_id'] = topic_id
+            
+            topic_info = get_topic_by_id(topic_id)
+            if topic_info:
+                topic_name = topic_info[0][1]
+                
+                await context.bot.send_message(
+                    chat_id=user_id,
+                    text=f"✅ مبحث انتخاب شد: {topic_name}\n\n"
+                         f"📸 لطفاً عکس سوال را ارسال کنید:"
+                )
+        return
+    
+    # حالت عادی برای کاربران
     if 'custom_quiz' not in context.user_data:
         return
     
@@ -600,7 +646,7 @@ async def chosen_inline_result_handler(update: Update, context: ContextTypes.DEF
     
     # نمایش مباحث انتخاب شده
     selected_topics = context.user_data['custom_quiz']['selected_topics']
-    topics_text = "\n".join([get_topic_by_name(str(topic_id))[0][1] for topic_id in selected_topics])
+    topics_text = "\n".join([get_topic_by_id(topic_id)[0][1] for topic_id in selected_topics])
     
     keyboard = [
         [InlineKeyboardButton("✅ ادامه تنظیمات", callback_data="custom_quiz_settings")],
@@ -618,10 +664,15 @@ async def chosen_inline_result_handler(update: Update, context: ContextTypes.DEF
 async def custom_quiz_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['custom_quiz']['step'] = 'settings'
     
+    settings = context.user_data['custom_quiz']['settings']
+    count = settings.get('count', 20)
+    time_limit = settings.get('time_limit', 30)
+    difficulty = settings.get('difficulty', 'all')
+    
     keyboard = [
-        [InlineKeyboardButton("📊 تعداد سوالات: ۲۰", callback_data="set_count_20")],
-        [InlineKeyboardButton("⏱ زمان: ۳۰ دقیقه", callback_data="set_time_30")],
-        [InlineKeyboardButton("🎯 سطح: همه سطوح", callback_data="set_difficulty_all")],
+        [InlineKeyboardButton(f"📊 تعداد سوالات: {count}", callback_data="set_count_20")],
+        [InlineKeyboardButton(f"⏱ زمان: {time_limit} دقیقه", callback_data="set_time_30")],
+        [InlineKeyboardButton(f"🎯 سطح: {difficulty}", callback_data="set_difficulty_all")],
         [InlineKeyboardButton("🚀 شروع آزمون", callback_data="generate_custom_quiz")],
         [InlineKeyboardButton("🔙 بازگشت", callback_data="create_custom_quiz")]
     ]
@@ -670,7 +721,7 @@ async def generate_custom_quiz(update: Update, context: ContextTypes.DEFAULT_TYP
     # شروع آزمون
     await start_quiz(update, context, quiz_id)
 
-# توابع آزمون (مانند قبل)
+# توابع آزمون
 async def start_quiz(update: Update, context: ContextTypes.DEFAULT_TYPE, quiz_id: int):
     user_id = update.effective_user.id
     
@@ -730,11 +781,18 @@ async def show_question(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_answers_dict = {q_id: ans for q_id, ans in user_answers}
     selected = user_answers_dict.get(question_id)
     
+    # ایجاد کیبورد با تیک‌ها
     keyboard = []
     for i in range(1, 5):
         check = "✅ " if selected == i else ""
         keyboard.append([InlineKeyboardButton(f"{check}گزینه {i}", callback_data=f"ans_{quiz_data['quiz_id']}_{current_index}_{i}")])
     
+    # دکمه علامت‌گذاری
+    marked = context.user_data.get('marked_questions', set())
+    mark_text = "✅ علامت گذاری شده" if current_index in marked else "🏷 علامت‌گذاری"
+    keyboard.append([InlineKeyboardButton(mark_text, callback_data=f"mark_{quiz_data['quiz_id']}_{current_index}")])
+    
+    # دکمه‌های ناوبری
     nav_buttons = []
     if current_index > 0:
         nav_buttons.append(InlineKeyboardButton("◀️ قبلی", callback_data=f"nav_{current_index-1}"))
@@ -744,7 +802,11 @@ async def show_question(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if nav_buttons:
         keyboard.append(nav_buttons)
     
+    # اگر سوال آخر است، دکمه ارسال مجدد و ثبت نهایی
     if current_index == len(questions) - 1:
+        marked_count = len(marked)
+        if marked_count > 0:
+            keyboard.append([InlineKeyboardButton(f"🔄 مرور سوالات علامت‌گذاری شده ({marked_count})", callback_data=f"review_marked")])
         keyboard.append([InlineKeyboardButton("✅ ثبت نهایی پاسخ‌ها", callback_data=f"submit_{quiz_data['quiz_id']}")])
     
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -795,6 +857,57 @@ async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE, quiz
     
     await show_question(update, context)
 
+async def toggle_mark(update: Update, context: ContextTypes.DEFAULT_TYPE, question_index: int):
+    """تغییر وضعیت علامت‌گذاری سوال"""
+    marked = context.user_data.get('marked_questions', set())
+    
+    if question_index in marked:
+        marked.remove(question_index)
+        await update.callback_query.answer("🏷 علامت برداشته شد")
+    else:
+        marked.add(question_index)
+        await update.callback_query.answer("✅ علامت‌گذاری شد")
+    
+    context.user_data['marked_questions'] = marked
+    
+    # بروزرسانی نمایش سوال
+    await show_question(update, context)
+
+async def navigate_to_question(update: Update, context: ContextTypes.DEFAULT_TYPE, new_index: int):
+    """پرش به سوال مشخص شده"""
+    quiz_data = context.user_data.get('current_quiz')
+    
+    if not quiz_data:
+        await update.callback_query.answer("خطا! لطفاً آزمون را دوباره شروع کنید.")
+        return
+    
+    if 0 <= new_index < len(quiz_data['questions']):
+        quiz_data['current_index'] = new_index
+        await show_question(update, context)
+    else:
+        await update.callback_query.answer("سوال مورد نظر یافت نشد!")
+
+async def review_marked_questions(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """مرور سوالات علامت‌گذاری شده"""
+    quiz_data = context.user_data.get('current_quiz')
+    marked = context.user_data.get('marked_questions', set())
+    
+    if not quiz_data or not marked:
+        await update.callback_query.answer("هیچ سوالی علامت‌گذاری نشده است!")
+        return
+    
+    # ایجاد لیست سوالات علامت‌گذاری شده
+    marked_list = sorted(list(marked))
+    
+    if 'review_mode' not in context.user_data:
+        context.user_data['review_mode'] = True
+        context.user_data['marked_list'] = marked_list
+        context.user_data['review_index'] = 0
+    
+    # نمایش اولین سوال علامت‌گذاری شده
+    quiz_data['current_index'] = marked_list[0]
+    await show_question(update, context)
+
 async def submit_quiz(update: Update, context: ContextTypes.DEFAULT_TYPE, quiz_id: int):
     user_id = update.effective_user.id
     quiz_data = context.user_data.get('current_quiz')
@@ -813,6 +926,12 @@ async def submit_quiz(update: Update, context: ContextTypes.DEFAULT_TYPE, quiz_i
     wrong_answers = 0
     unanswered_questions = 0
     
+    correct_questions = []
+    wrong_questions = []
+    unanswered_questions_list = []
+    
+    result_details = "📊 جزئیات پاسخ‌ها:\n\n"
+    
     # محاسبه نتایج و به‌روزرسانی سطح سختی
     for i, question in enumerate(quiz_data['questions']):
         question_id, question_image, correct_answer = question
@@ -823,14 +942,21 @@ async def submit_quiz(update: Update, context: ContextTypes.DEFAULT_TYPE, quiz_i
         
         if user_answer is None:
             unanswered_questions += 1
+            unanswered_questions_list.append(i + 1)
+            result_details += f"⏸️ سوال {i+1}: بی‌پاسخ\n"
             # به‌روزرسانی سطح سختی برای سوالات بی‌پاسخ
             DifficultyAnalyzer.update_question_difficulty(question_id, False, time_per_question)
         elif user_answer == correct_answer:
             score += 1
             correct_answers += 1
+            correct_questions.append(i + 1)
+            result_details += f"✅ سوال {i+1}: صحیح\n"
             DifficultyAnalyzer.update_question_difficulty(question_id, True, time_per_question)
         else:
             wrong_answers += 1
+            wrong_questions.append(i + 1)
+            user_answer_text = user_answer if user_answer else "پاسخی داده نشد"
+            result_details += f"❌ سوال {i+1}: غلط (پاسخ شما: {user_answer_text}, پاسخ صحیح: {correct_answer})\n"
             DifficultyAnalyzer.update_question_difficulty(question_id, False, time_per_question)
     
     # محاسبه نمره نهایی با نمره منفی
@@ -850,8 +976,16 @@ async def submit_quiz(update: Update, context: ContextTypes.DEFAULT_TYPE, quiz_i
         f"❌ غلط: {wrong_answers} از {total_questions}\n"
         f"⏸️ بی‌پاسخ: {unanswered_questions} از {total_questions}\n"
         f"📈 درصد نهایی: {final_percentage:.2f}%\n"
-        f"⏱ زمان: {total_time // 60}:{total_time % 60:02d}\n"
+        f"⏱ زمان: {total_time // 60}:{total_time % 60:02d}\n\n"
     )
+    
+    # اضافه کردن شماره سوالات به پیام کاربر
+    if correct_questions:
+        user_message += f"🔢 سوالات صحیح: {', '.join(map(str, correct_questions))}\n"
+    if wrong_questions:
+        user_message += f"🔢 سوالات غلط: {', '.join(map(str, wrong_questions))}\n"
+    if unanswered_questions_list:
+        user_message += f"🔢 سوالات بی‌پاسخ: {', '.join(map(str, unanswered_questions_list))}\n"
     
     # اگر آزمون ادمین باشد، نمایش رتبه
     if quiz_data.get('created_by_admin'):
@@ -870,13 +1004,17 @@ async def submit_quiz(update: Update, context: ContextTypes.DEFAULT_TYPE, quiz_i
         await update.callback_query.message.reply_text(user_message, reply_markup=reply_markup)
     
     # ارسال نتایج به ادمین
-    await send_results_to_admin(context, user_id, quiz_id, final_percentage, total_time, correct_answers, wrong_answers, unanswered_questions)
+    await send_results_to_admin(context, user_id, quiz_id, final_percentage, total_time, correct_answers, wrong_answers, unanswered_questions, result_details)
     
     # پاک کردن داده‌های موقت
     if 'current_quiz' in context.user_data:
         del context.user_data['current_quiz']
+    if 'marked_questions' in context.user_data:
+        del context.user_data['marked_questions']
+    if 'review_mode' in context.user_data:
+        del context.user_data['review_mode']
 
-async def send_results_to_admin(context: ContextTypes.DEFAULT_TYPE, user_id: int, quiz_id: int, score: float, total_time: int, correct: int, wrong: int, unanswered: int):
+async def send_results_to_admin(context: ContextTypes.DEFAULT_TYPE, user_id: int, quiz_id: int, score: float, total_time: int, correct: int, wrong: int, unanswered: int, result_details: str = ""):
     user_info = get_user(user_id)
     quiz_info = get_quiz_info(quiz_id)
     
@@ -896,7 +1034,8 @@ async def send_results_to_admin(context: ContextTypes.DEFAULT_TYPE, user_id: int
         f"❌ پاسخ‌های غلط: {wrong}\n"
         f"⏸️ بی‌پاسخ: {unanswered}\n"
         f"📈 درصد نهایی: {score:.2f}%\n"
-        f"⏱ زمان: {total_time // 60}:{total_time % 60:02d}"
+        f"⏱ زمان: {total_time // 60}:{total_time % 60:02d}\n\n"
+        f"{result_details}"
     )
     
     try:
@@ -918,6 +1057,7 @@ async def show_admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🏆 مشاهده رتبه‌بندی", callback_data="admin_quiz_rankings")],
         [InlineKeyboardButton("👥 مشاهده کاربران", callback_data="admin_view_users")],
         [InlineKeyboardButton("📊 مشاهده نتایج", callback_data="admin_view_results")],
+        [InlineKeyboardButton("📢 ارسال پیام همگانی", callback_data="admin_broadcast")],
         [InlineKeyboardButton("🔙 منوی اصلی", callback_data="main_menu")]
     ]
     
@@ -964,52 +1104,606 @@ async def show_quiz_rankings(update: Update, context: ContextTypes.DEFAULT_TYPE,
     
     await update.callback_query.edit_message_text(text, reply_markup=reply_markup)
 
-# توابع کمکی (مانند قبل)
-def create_quiz(title: str, description: str, time_limit: int, by_admin: bool = True):
-    result = execute_query('''
-        INSERT INTO quizzes (title, description, time_limit, is_active, created_by_admin) 
-        VALUES (%s, %s, %s, TRUE, %s) RETURNING id
-    ''', (title, description, time_limit, by_admin), return_id=True)
-    return result[0][0] if result else None
+# توابع مدیریت ادمین
+async def admin_create_quiz(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """شروع فرآیند ایجاد آزمون جدید"""
+    if update.effective_user.id != ADMIN_ID:
+        return
+    
+    context.user_data['admin_action'] = 'creating_quiz'
+    context.user_data['quiz_data'] = {
+        'questions': [],
+        'current_step': 'title'
+    }
+    
+    await update.callback_query.edit_message_text(
+        "📝 ایجاد آزمون جدید:\n\nلطفاً عنوان آزمون را ارسال کنید:"
+    )
 
-def add_question(quiz_id: int, question_image: str, correct_answer: int, question_order: int):
-    return execute_query('''
-        INSERT INTO questions (quiz_id, question_image, correct_answer, question_order)
-        VALUES (%s, %s, %s, %s)
-    ''', (quiz_id, question_image, correct_answer, question_order))
+async def admin_manage_quizzes(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """مدیریت آزمون‌ها"""
+    if update.effective_user.id != ADMIN_ID:
+        return
+    
+    quizzes = execute_query("SELECT id, title, is_active FROM quizzes ORDER BY created_at DESC")
+    
+    if not quizzes:
+        keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.callback_query.edit_message_text(
+            "⚠️ هیچ آزمونی یافت نشد.",
+            reply_markup=reply_markup
+        )
+        return
+    
+    text = "📋 مدیریت آزمون‌ها:\n\n"
+    keyboard = []
+    
+    for quiz_id, title, is_active in quizzes:
+        status = "✅ فعال" if is_active else "❌ غیرفعال"
+        status_icon = "❌" if is_active else "✅"
+        action_text = "غیرفعال" if is_active else "فعال"
+        
+        text += f"📌 {title} - {status}\n"
+        keyboard.append([InlineKeyboardButton(
+            f"{status_icon} {action_text} کردن '{title}'", 
+            callback_data=f"toggle_quiz_{quiz_id}"
+        )])
+    
+    keyboard.append([InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")])
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.callback_query.edit_message_text(
+        text,
+        reply_markup=reply_markup
+    )
 
-def get_quiz_info(quiz_id: int):
-    result = execute_query("SELECT title, description, time_limit, is_active, created_by_admin FROM quizzes WHERE id = %s", (quiz_id,))
-    return result[0] if result else None
+async def toggle_quiz_status_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, quiz_id: int):
+    """تغییر وضعیت فعال/غیرفعال آزمون"""
+    if update.effective_user.id != ADMIN_ID:
+        return
+    
+    toggle_quiz_status(quiz_id)
+    await update.callback_query.answer("✅ وضعیت آزمون تغییر کرد")
+    await admin_manage_quizzes(update, context)
 
-def get_quiz_questions(quiz_id: int):
-    return execute_query("SELECT id, question_image, correct_answer FROM questions WHERE quiz_id = %s ORDER BY question_order, id", (quiz_id,))
+async def admin_view_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """مشاهده کاربران"""
+    if update.effective_user.id != ADMIN_ID:
+        return
+    
+    users = get_all_users()
+    
+    if not users:
+        keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.callback_query.edit_message_text(
+            "⚠️ هیچ کاربری یافت نشد.",
+            reply_markup=reply_markup
+        )
+        return
+    
+    # محاسبه تعداد کل کاربران
+    total_users = len(users)
+    
+    text = f"👥 لیست کاربران (تعداد کل: {total_users}):\n\n"
+    for user in users[:20]:  # فقط 20 کاربر اول
+        user_id, full_name, username, phone_number, registered_at = user
+        text += f"👤 {full_name}\n"
+        text += f"📞 {phone_number}\n"
+        text += f"🔗 @{username if username else 'ندارد'}\n"
+        text += f"🆔 {user_id}\n"
+        text += f"📅 {registered_at.strftime('%Y-%m-%d %H:%M')}\n"
+        text += "─" * 20 + "\n"
+    
+    if len(users) > 20:
+        text += f"\n📊 و {len(users) - 20} کاربر دیگر..."
+    
+    keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.callback_query.edit_message_text(
+        text,
+        reply_markup=reply_markup
+    )
 
-def save_user_answer(user_id: int, quiz_id: int, question_id: int, answer: int):
-    return execute_query('''
-        INSERT INTO user_answers (user_id, quiz_id, question_id, selected_answer) 
-        VALUES (%s, %s, %s, %s)
-        ON CONFLICT (user_id, quiz_id, question_id) 
-        DO UPDATE SET selected_answer = EXCLUDED.selected_answer, answered_at = CURRENT_TIMESTAMP
-    ''', (user_id, quiz_id, question_id, answer))
+async def admin_view_results(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """مشاهده نتایج"""
+    if update.effective_user.id != ADMIN_ID:
+        return
+    
+    results = get_all_results()
+    
+    if not results:
+        keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.callback_query.edit_message_text(
+            "⚠️ هیچ نتیجه‌ای یافت نشد.",
+            reply_markup=reply_markup
+        )
+        return
+    
+    text = "📊 نتایج آزمون‌ها:\n\n"
+    for result in results[:15]:  # فقط 15 نتیجه اول
+        full_name, title, score, total_time, completed_at = result
+        time_str = f"{total_time // 60}:{total_time % 60:02d}"
+        text += f"👤 {full_name}\n"
+        text += f"📚 {title}\n"
+        text += f"✅ امتیاز: {score}\n"
+        text += f"⏱ زمان: {time_str}\n"
+        text += f"📅 {completed_at.strftime('%Y-%m-%d %H:%M')}\n"
+        text += "─" * 20 + "\n"
+    
+    if len(results) > 15:
+        text += f"\n📊 و {len(results) - 15} نتیجه دیگر..."
+    
+    keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.callback_query.edit_message_text(
+        text,
+        reply_markup=reply_markup
+    )
 
-def get_user_answers(user_id: int, quiz_id: int):
-    return execute_query("SELECT question_id, selected_answer FROM user_answers WHERE user_id = %s AND quiz_id = %s", (user_id, quiz_id))
+async def admin_broadcast_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """شروع فرآیند ارسال پیام همگانی"""
+    if update.effective_user.id != ADMIN_ID:
+        return
+    
+    context.user_data['admin_action'] = 'broadcasting'
+    
+    keyboard = [[InlineKeyboardButton("🔙 لغو", callback_data="admin_panel")]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.callback_query.edit_message_text(
+        "📢 ارسال پیام همگانی:\n\n"
+        "لطفاً پیام خود را ارسال کنید (متن، عکس، یا هر دو):\n\n"
+        "💡 نکته: می‌توانید متن به همراه عکس ارسال کنید.",
+        reply_markup=reply_markup
+    )
 
-def clear_user_answers(user_id: int, quiz_id: int):
-    return execute_query("DELETE FROM user_answers WHERE user_id = %s AND quiz_id = %s", (user_id, quiz_id))
+async def handle_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """پردازش و ارسال پیام همگانی"""
+    if update.effective_user.id != ADMIN_ID:
+        return
+    
+    if 'admin_action' not in context.user_data or context.user_data['admin_action'] != 'broadcasting':
+        return
+    
+    # دریافت تمام کاربران
+    users = get_all_users()
+    if not users:
+        await update.message.reply_text("❌ هیچ کاربری برای ارسال پیام وجود ندارد!")
+        return
+    
+    total_users = len(users)
+    successful_sends = 0
+    failed_sends = 0
+    
+    # اطلاع رسانی شروع ارسال
+    progress_msg = await update.message.reply_text(
+        f"📤 شروع ارسال پیام به {total_users} کاربر...\n\n"
+        f"✅ موفق: 0\n"
+        f"❌ ناموفق: 0\n"
+        f"📊 پیشرفت: 0%"
+    )
+    
+    # ارسال به کاربران
+    for index, user in enumerate(users):
+        user_id = user[0]
+        
+        try:
+            # اگر پیام دارای عکس است
+            if update.message.photo:
+                photo_file = await update.message.photo[-1].get_file()
+                
+                # ارسال عکس با کپشن (اگر متن وجود دارد)
+                caption = update.message.caption if update.message.caption else None
+                await context.bot.send_photo(
+                    chat_id=user_id,
+                    photo=photo_file.file_id,
+                    caption=caption,
+                    parse_mode=ParseMode.MARKDOWN
+                )
+            
+            # اگر فقط متن است
+            elif update.message.text:
+                await context.bot.send_message(
+                    chat_id=user_id,
+                    text=update.message.text,
+                    parse_mode=ParseMode.MARKDOWN
+                )
+            
+            successful_sends += 1
+            
+        except Exception as e:
+            logger.error(f"Failed to send message to user {user_id}: {e}")
+            failed_sends += 1
+        
+        # بروزرسانی پیشرفت هر 10 کاربر
+        if (index + 1) % 10 == 0 or (index + 1) == total_users:
+            progress = ((index + 1) / total_users) * 100
+            try:
+                await progress_msg.edit_text(
+                    f"📤 ارسال پیام به کاربران...\n\n"
+                    f"✅ موفق: {successful_sends}\n"
+                    f"❌ ناموفق: {failed_sends}\n"
+                    f"📊 پیشرفت: {progress:.1f}%"
+                )
+            except:
+                pass
+        
+        # تاخیر کوچک برای جلوگیری از محدودیت تلگرام
+        await asyncio.sleep(0.1)
+    
+    # نتیجه نهایی
+    result_text = (
+        f"🎉 ارسال پیام همگانی تکمیل شد!\n\n"
+        f"📊 آمار ارسال:\n"
+        f"• 👥 کاربران کل: {total_users}\n"
+        f"• ✅ ارسال موفق: {successful_sends}\n"
+        f"• ❌ ارسال ناموفق: {failed_sends}\n"
+        f"• 📈 نرخ موفقیت: {(successful_sends/total_users)*100:.1f}%"
+    )
+    
+    keyboard = [[InlineKeyboardButton("🔙 بازگشت به پنل ادمین", callback_data="admin_panel")]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await progress_msg.edit_text(result_text, reply_markup=reply_markup)
+    
+    # پاک کردن وضعیت
+    if 'admin_action' in context.user_data:
+        del context.user_data['admin_action']
 
-def get_all_users():
-    return execute_query("SELECT user_id, full_name, username, phone_number, registered_at FROM users ORDER BY registered_at DESC")
+async def handle_contact(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """پردازش شماره تلفن دریافتی"""
+    contact = update.message.contact
+    user = update.effective_user
+    
+    if contact.user_id != user.id:
+        await update.message.reply_text("لطفاً شماره تلفن خودتان را ارسال کنید.")
+        return
+    
+    add_user(
+        user.id, 
+        contact.phone_number, 
+        user.username, 
+        user.full_name
+    )
+    
+    admin_message = (
+        "👤 کاربر جدید ثبت نام کرد:\n"
+        f"🆔 آیدی: {user.id}\n"
+        f"📞 شماره: {contact.phone_number}\n"
+        f"👤 نام: {user.full_name}\n"
+        f"🔗 یوزرنیم: @{user.username if user.username else 'ندارد'}"
+    )
+    
+    try:
+        await context.bot.send_message(ADMIN_ID, admin_message)
+    except Exception as e:
+        logger.error(f"Error sending message to admin: {e}")
+    
+    await update.message.reply_text(
+        "✅ ثبت نام شما با موفقیت انجام شد!",
+        reply_markup=ReplyKeyboardRemove()
+    )
+    
+    await show_main_menu(update, context)
 
-def get_all_results():
-    return execute_query('''
-        SELECT u.full_name, q.title, r.score, r.total_time, r.completed_at 
-        FROM results r
-        JOIN users u ON r.user_id = u.user_id
-        JOIN quizzes q ON r.quiz_id = q.id
-        ORDER BY r.completed_at DESC
-    ''')
+async def handle_admin_photos(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """پردازش عکس‌های ارسالی ادمین برای سوالات"""
+    if update.effective_user.id != ADMIN_ID:
+        return
+    
+    # اگر در حال افزودن سوال به بانک است
+    if 'admin_action' in context.user_data and context.user_data['admin_action'] == 'adding_question_to_bank':
+        if 'question_bank_data' not in context.user_data:
+            context.user_data['question_bank_data'] = {}
+        
+        # دریافت عکس
+        photo_file = await update.message.photo[-1].get_file()
+        image_filename = f"question_bank_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg"
+        image_path = os.path.join(PHOTOS_DIR, image_filename)
+        
+        await photo_file.download_to_drive(image_path)
+        
+        # ذخیره مسیر عکس
+        context.user_data['question_bank_data']['question_image'] = image_path
+        
+        await update.message.reply_text(
+            "✅ عکس سوال ذخیره شد.\n\n"
+            "لطفاً شماره گزینه صحیح را ارسال کنید (1 تا 4):"
+        )
+        return
+    
+    # حالت عادی برای ایجاد آزمون
+    if 'admin_action' not in context.user_data or context.user_data['admin_action'] != 'adding_questions':
+        await update.message.reply_text("❌ ابتدا فرآیند ایجاد آزمون را شروع کنید.")
+        return
+    
+    quiz_data = context.user_data.get('quiz_data', {})
+    
+    if quiz_data.get('current_step') != 'question_image':
+        await update.message.reply_text("❌ در این مرحله نمی‌توانید عکس ارسال کنید.")
+        return
+    
+    # دریافت عکس
+    photo_file = await update.message.photo[-1].get_file()
+    image_filename = f"question_{quiz_data['quiz_id']}_{len(quiz_data['questions']) + 1}.jpg"
+    image_path = os.path.join(PHOTOS_DIR, image_filename)
+    
+    await photo_file.download_to_drive(image_path)
+    
+    # ذخیره مسیر عکس
+    quiz_data['current_question_image'] = image_path
+    quiz_data['current_step'] = 'correct_answer'
+    
+    context.user_data['quiz_data'] = quiz_data
+    
+    await update.message.reply_text(
+        "✅ عکس سوال ذخیره شد.\n\n"
+        "لطفاً شماره گزینه صحیح را ارسال کنید (1 تا 4):"
+    )
+
+async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """پردازش متن‌های ارسالی ادمین"""
+    if update.effective_user.id != ADMIN_ID:
+        return
+    
+    text = update.message.text
+    
+    if 'admin_action' not in context.user_data:
+        return
+    
+    action = context.user_data['admin_action']
+    
+    # اگر در حال افزودن سوال به بانک است
+    if action == 'adding_question_to_bank':
+        if 'question_bank_data' not in context.user_data:
+            await update.message.reply_text("❌ خطا! ابتدا فرآیند را دوباره شروع کنید.")
+            return
+        
+        question_data = context.user_data['question_bank_data']
+        
+        if 'question_image' in question_data and 'topic_id' in question_data:
+            try:
+                correct_answer = int(text)
+                if correct_answer < 1 or correct_answer > 4:
+                    raise ValueError
+                
+                # ذخیره سوال در بانک
+                result = add_question_to_bank(
+                    question_data['topic_id'],
+                    question_data['question_image'],
+                    correct_answer
+                )
+                
+                if result:
+                    topic_info = get_topic_by_id(question_data['topic_id'])
+                    topic_name = topic_info[0][1] if topic_info else "نامشخص"
+                    
+                    await update.message.reply_text(
+                        f"✅ سوال با موفقیت به بانک اضافه شد!\n\n"
+                        f"📚 مبحث: {topic_name}\n"
+                        f"📸 عکس: {os.path.basename(question_data['question_image'])}\n"
+                        f"✅ پاسخ صحیح: گزینه {correct_answer}"
+                    )
+                else:
+                    await update.message.reply_text("❌ خطا در ذخیره سوال!")
+                
+                # پاک کردن داده‌های موقت
+                if 'question_bank_data' in context.user_data:
+                    del context.user_data['question_bank_data']
+                if 'admin_action' in context.user_data:
+                    del context.user_data['admin_action']
+                
+            except ValueError:
+                await update.message.reply_text("❌ لطفاً عددی بین 1 تا 4 وارد کنید:")
+        else:
+            await update.message.reply_text("❌ ابتدا مبحث و عکس سوال را انتخاب کنید.")
+        return
+    
+    # حالت عادی برای ایجاد آزمون
+    quiz_data = context.user_data.get('quiz_data', {})
+    
+    if action == 'creating_quiz':
+        current_step = quiz_data.get('current_step')
+        
+        if current_step == 'title':
+            quiz_data['title'] = text
+            quiz_data['current_step'] = 'description'
+            context.user_data['quiz_data'] = quiz_data
+            
+            await update.message.reply_text(
+                "✅ عنوان آزمون ذخیره شد.\n\n"
+                "لطفاً توضیحات آزمون را ارسال کنید:"
+            )
+        
+        elif current_step == 'description':
+            quiz_data['description'] = text
+            quiz_data['current_step'] = 'time_limit'
+            context.user_data['quiz_data'] = quiz_data
+            
+            await update.message.reply_text(
+                "✅ توضیحات آزمون ذخیره شد.\n\n"
+                "لطفاً زمان آزمون را به دقیقه ارسال کنید:"
+            )
+        
+        elif current_step == 'time_limit':
+            try:
+                time_limit = int(text)
+                if time_limit <= 0:
+                    raise ValueError
+                
+                # ایجاد آزمون در دیتابیس
+                quiz_id = create_quiz(
+                    quiz_data['title'],
+                    quiz_data['description'],
+                    time_limit,
+                    True
+                )
+                
+                if quiz_id:
+                    quiz_data['quiz_id'] = quiz_id
+                    quiz_data['current_step'] = 'add_questions'
+                    context.user_data['quiz_data'] = quiz_data
+                    
+                    keyboard = [
+                        [InlineKeyboardButton("✅ بله، افزودن سوالات", callback_data="confirm_add_questions")],
+                        [InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")]
+                    ]
+                    reply_markup = InlineKeyboardMarkup(keyboard)
+                    
+                    await update.message.reply_text(
+                        f"✅ آزمون با مشخصات زیر ایجاد شد:\n\n"
+                        f"📌 عنوان: {quiz_data['title']}\n"
+                        f"📝 توضیحات: {quiz_data['description']}\n"
+                        f"⏱ زمان: {time_limit} دقیقه\n\n"
+                        f"آیا می‌خواهید اکنون سوالات را اضافه کنید؟",
+                        reply_markup=reply_markup
+                    )
+                else:
+                    await update.message.reply_text("❌ خطا در ایجاد آزمون!")
+                    
+            except ValueError:
+                await update.message.reply_text("❌ لطفاً یک عدد صحیح مثبت وارد کنید:")
+    
+    elif action == 'adding_questions':
+        current_step = quiz_data.get('current_step')
+        
+        if current_step == 'correct_answer':
+            try:
+                correct_answer = int(text)
+                if correct_answer < 1 or correct_answer > 4:
+                    raise ValueError
+                
+                # ذخیره سوال در دیتابیس
+                add_question(
+                    quiz_data['quiz_id'],
+                    quiz_data['current_question_image'],
+                    correct_answer,
+                    len(quiz_data['questions']) + 1
+                )
+                
+                # افزودن به لیست سوالات
+                quiz_data['questions'].append({
+                    'image': quiz_data['current_question_image'],
+                    'correct_answer': correct_answer
+                })
+                
+                keyboard = [
+                    [InlineKeyboardButton("➕ افزودن سوال دیگر", callback_data="add_another_question")],
+                    [InlineKeyboardButton("🏁 اتمام افزودن سوالات", callback_data="admin_panel")]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                
+                await update.message.reply_text(
+                    f"✅ سوال {len(quiz_data['questions'])} با موفقیت اضافه شد!\n\n"
+                    f"📸 عکس: {os.path.basename(quiz_data['current_question_image'])}\n"
+                    f"✅ پاسخ صحیح: گزینه {correct_answer}\n\n"
+                    f"چه کاری می‌خواهید انجام دهید؟",
+                    reply_markup=reply_markup
+                )
+                
+                # پاک کردن داده‌های موقت
+                if 'current_question_image' in quiz_data:
+                    del quiz_data['current_question_image']
+                
+                quiz_data['current_step'] = 'waiting_decision'
+                context.user_data['quiz_data'] = quiz_data
+                
+            except ValueError:
+                await update.message.reply_text("❌ لطفاً عددی بین 1 تا 4 وارد کنید:")
+
+async def start_adding_questions(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """شروع فرآیند افزودن سوالات"""
+    if update.effective_user.id != ADMIN_ID:
+        return
+    
+    quiz_data = context.user_data.get('quiz_data', {})
+    
+    if 'quiz_id' not in quiz_data:
+        await update.callback_query.edit_message_text("❌ خطا! ابتدا آزمون را ایجاد کنید.")
+        return
+    
+    context.user_data['admin_action'] = 'adding_questions'
+    quiz_data['current_step'] = 'question_image'
+    context.user_data['quiz_data'] = quiz_data
+    
+    await update.callback_query.edit_message_text(
+        f"➕ افزودن سوال به آزمون '{quiz_data['title']}':\n\n"
+        "لطفاً عکس سوال را ارسال کنید:"
+    )
+
+async def admin_add_question_to_bank(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """شروع فرآیند افزودن سوال به بانک با انتخاب مبحث از طریق اینلاین"""
+    if update.effective_user.id != ADMIN_ID:
+        return
+    
+    context.user_data['admin_action'] = 'adding_question_to_bank'
+    context.user_data['question_bank_data'] = {}
+    
+    keyboard = [
+        [InlineKeyboardButton("🔍 انتخاب مبحث", switch_inline_query_current_chat="")],
+        [InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.callback_query.edit_message_text(
+        "📚 افزودن سوال به بانک:\n\n"
+        "مرحله ۱/۳: انتخاب مبحث\n\n"
+        "روی دکمه زیر کلیک کنید و مبحث مورد نظر را انتخاب کنید:",
+        reply_markup=reply_markup
+    )
+
+async def admin_manage_topics(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """مدیریت مباحث"""
+    if update.effective_user.id != ADMIN_ID:
+        return
+    
+    topics = get_all_topics()
+    
+    if not topics:
+        keyboard = [
+            [InlineKeyboardButton("➕ افزودن مبحث جدید", callback_data="admin_add_topic")],
+            [InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.callback_query.edit_message_text(
+            "⚠️ هیچ مبحثی یافت نشد.",
+            reply_markup=reply_markup
+        )
+        return
+    
+    text = "📚 مدیریت مباحث:\n\n"
+    for topic in topics:
+        topic_id, name, description = topic
+        text += f"• {name}\n"
+        if description:
+            text += f"  📝 {description}\n"
+        text += f"  🆔 کد: {topic_id}\n\n"
+    
+    keyboard = [
+        [InlineKeyboardButton("➕ افزودن مبحث جدید", callback_data="admin_add_topic")],
+        [InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.callback_query.edit_message_text(text, reply_markup=reply_markup)
+
+async def admin_add_topic(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """افزودن مبحث جدید"""
+    if update.effective_user.id != ADMIN_ID:
+        return
+    
+    context.user_data['admin_action'] = 'adding_topic'
+    context.user_data['topic_data'] = {'step': 'name'}
+    
+    await update.callback_query.edit_message_text(
+        "📚 افزودن مبحث جدید:\n\n"
+        "لطفاً نام مبحث را ارسال کنید:"
+    )
 
 async def show_quiz_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     quizzes = get_active_quizzes()
@@ -1073,37 +1767,6 @@ async def show_my_results(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await update.callback_query.edit_message_text(result_text, reply_markup=reply_markup)
 
-# توابع مدیریت ادمین (مانند قبل)
-async def admin_create_quiz(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID:
-        return
-    # پیاده‌سازی مشابه قبل...
-
-async def admin_manage_quizzes(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID:
-        return
-    # پیاده‌سازی مشابه قبل...
-
-async def admin_view_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID:
-        return
-    # پیاده‌سازی مشابه قبل...
-
-async def admin_view_results(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID:
-        return
-    # پیاده‌سازی مشابه قبل...
-
-async def admin_manage_topics(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID:
-        return
-    # پیاده‌سازی مدیریت مباحث...
-
-async def admin_add_question(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID:
-        return
-    # پیاده‌سازی افزودن سوال به بانک...
-
 async def show_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     help_text = (
         "📖 راهنمای ربات آزمون:\n\n"
@@ -1112,7 +1775,9 @@ async def show_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "3. 📊 نتایج من: مشاهده نتایج و رتبه‌های گذشته\n"
         "4. ⏱ زمان‌بندی: هر آزمون زمان محدودی دارد\n"
         "5. ✅ انتخاب پاسخ: روی گزینه‌ها کلیک کنید\n"
-        "6. 🏆 رتبه‌بندی: در آزمون‌های ادمین رتبه کسب کنید\n\n"
+        "6. 🏷 علامت‌گذاری: سوالات مشکوک را علامت بگذارید\n"
+        "7. 🔄 مرور: سوالات علامت‌گذاری شده را مرور کنید\n"
+        "8. 🏆 رتبه‌بندی: در آزمون‌های ادمین رتبه کسب کنید\n\n"
         "موفق باشید! 🎯"
     )
     
@@ -1142,16 +1807,23 @@ async def quiz_timeout(context: ContextTypes.DEFAULT_TYPE):
         unanswered_questions = 0
         total_questions = len(questions)
         
-        for question in questions:
+        correct_questions = []
+        wrong_questions = []
+        unanswered_questions_list = []
+        
+        for i, question in enumerate(questions):
             question_id, question_image, correct_answer = question
             user_answer = user_answers_dict.get(question_id)
             
             if user_answer is None:
                 unanswered_questions += 1
+                unanswered_questions_list.append(i + 1)
             elif user_answer == correct_answer:
                 correct_answers += 1
+                correct_questions.append(i + 1)
             else:
                 wrong_answers += 1
+                wrong_questions.append(i + 1)
         
         raw_score = correct_answers
         penalty = wrong_answers / 3.0
@@ -1170,33 +1842,161 @@ async def quiz_timeout(context: ContextTypes.DEFAULT_TYPE):
             f"❌ غلط: {wrong_answers} از {total_questions}\n"
             f"⏸️ بی‌پاسخ: {unanswered_questions} از {total_questions}\n"
             f"📈 درصد نهایی: {final_percentage:.2f}%\n"
+            f"📝 تعداد پاسخ‌های شما: {len(user_answers)} از {total_questions}\n\n"
         )
         
-        # بررسی رتبه برای آزمون‌های ادمین
-        if quiz_info[4]:  # created_by_admin
-            user_rank = get_user_rank(user_id, quiz_id)
-            if user_rank:
-                user_message += f"🏆 رتبه شما: {user_rank[0][0]}\n"
+        # اضافه کردن شماره سوالات به پیام کاربر
+        if correct_questions:
+            user_message += f"🔢 سوالات صحیح: {', '.join(map(str, correct_questions))}\n"
+        if wrong_questions:
+            user_message += f"🔢 سوالات غلط: {', '.join(map(str, wrong_questions))}\n"
+        if unanswered_questions_list:
+            user_message += f"🔢 سوالات بی‌پاسخ: {', '.join(map(str, unanswered_questions_list))}\n"
+        
+        user_message += f"\n💡 نکته: هر ۳ پاسخ اشتباه، معادل ۱ پاسخ صحیح نمره منفی دارد.\n\n"
+        user_message += f"با تشکر از مشارکت شما!"
         
         await context.bot.send_message(
             chat_id,
             user_message,
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 منوی اصلی", callback_data="main_menu")]])
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔙 منوی اصلی", callback_data="main_menu")]
+            ])
         )
+        
+        logger.info(f"Quiz timeout handled for user {user_id}, score: {final_percentage:.2f}%")
         
     except Exception as e:
         logger.error(f"Error in quiz timeout: {e}")
-        await context.bot.send_message(chat_id, "⏰ زمان آزمون به پایان رسید! پاسخ‌های شما ثبت شد.")
+        try:
+            await context.bot.send_message(
+                chat_id,
+                "⏰ زمان آزمون به پایان رسید! پاسخ‌های شما ثبت شد.",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🔙 منوی اصلی", callback_data="main_menu")]
+                ])
+            )
+        except:
+            pass
+
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """مدیریت پیام‌های متنی"""
+    if update.message.contact:
+        await handle_contact(update, context)
+    elif update.message.text or update.message.photo:
+        # بررسی اگر ادمین در حال ارسال پیام همگانی است
+        if (update.effective_user.id == ADMIN_ID and 
+            'admin_action' in context.user_data and 
+            context.user_data['admin_action'] == 'broadcasting'):
+            await handle_broadcast(update, context)
+        elif update.effective_user.id == ADMIN_ID:
+            # بررسی اگر ادمین در حال افزودن مبحث است
+            if 'admin_action' in context.user_data and context.user_data['admin_action'] == 'adding_topic':
+                text = update.message.text
+                topic_data = context.user_data.get('topic_data', {})
+                
+                if topic_data.get('step') == 'name':
+                    topic_data['name'] = text
+                    topic_data['step'] = 'description'
+                    context.user_data['topic_data'] = topic_data
+                    
+                    await update.message.reply_text(
+                        "✅ نام مبحث ذخیره شد.\n\n"
+                        "لطفاً توضیحات مبحث را ارسال کنید (اختیاری):\n\n"
+                        "💡 می‌توانید 'ندارد' را ارسال کنید تا از توضیحات صرف نظر کنید."
+                    )
+                elif topic_data.get('step') == 'description':
+                    description = text if text != 'ندارد' else ""
+                    
+                    # ذخیره مبحث در دیتابیس
+                    result = add_topic(topic_data['name'], description)
+                    
+                    if result:
+                        await update.message.reply_text(
+                            f"✅ مبحث '{topic_data['name']}' با موفقیت اضافه شد!"
+                        )
+                    else:
+                        await update.message.reply_text(
+                            "❌ خطا در افزودن مبحث! ممکن است مبحثی با این نام از قبل وجود داشته باشد."
+                        )
+                    
+                    # پاک کردن داده‌های موقت
+                    if 'topic_data' in context.user_data:
+                        del context.user_data['topic_data']
+                    if 'admin_action' in context.user_data:
+                        del context.user_data['admin_action']
+                return
+            
+            await handle_admin_text(update, context)
+        else:
+            await update.message.reply_text("لطفاً از منوی ربات استفاده کنید.")
+
+# توابع کمکی
+def create_quiz(title: str, description: str, time_limit: int, by_admin: bool = True):
+    result = execute_query('''
+        INSERT INTO quizzes (title, description, time_limit, is_active, created_by_admin) 
+        VALUES (%s, %s, %s, TRUE, %s) RETURNING id
+    ''', (title, description, time_limit, by_admin), return_id=True)
+    return result[0][0] if result else None
+
+def add_question(quiz_id: int, question_image: str, correct_answer: int, question_order: int):
+    return execute_query('''
+        INSERT INTO questions (quiz_id, question_image, correct_answer, question_order)
+        VALUES (%s, %s, %s, %s)
+    ''', (quiz_id, question_image, correct_answer, question_order))
+
+def get_quiz_info(quiz_id: int):
+    result = execute_query("SELECT title, description, time_limit, is_active, created_by_admin FROM quizzes WHERE id = %s", (quiz_id,))
+    return result[0] if result else None
+
+def get_quiz_questions(quiz_id: int):
+    return execute_query("SELECT id, question_image, correct_answer FROM questions WHERE quiz_id = %s ORDER BY question_order, id", (quiz_id,))
+
+def save_user_answer(user_id: int, quiz_id: int, question_id: int, answer: int):
+    return execute_query('''
+        INSERT INTO user_answers (user_id, quiz_id, question_id, selected_answer) 
+        VALUES (%s, %s, %s, %s)
+        ON CONFLICT (user_id, quiz_id, question_id) 
+        DO UPDATE SET selected_answer = EXCLUDED.selected_answer, answered_at = CURRENT_TIMESTAMP
+    ''', (user_id, quiz_id, question_id, answer))
+
+def get_user_answers(user_id: int, quiz_id: int):
+    return execute_query("SELECT question_id, selected_answer FROM user_answers WHERE user_id = %s AND quiz_id = %s", (user_id, quiz_id))
+
+def clear_user_answers(user_id: int, quiz_id: int):
+    return execute_query("DELETE FROM user_answers WHERE user_id = %s AND quiz_id = %s", (user_id, quiz_id))
+
+def get_all_users():
+    return execute_query("SELECT user_id, full_name, username, phone_number, registered_at FROM users ORDER BY registered_at DESC")
+
+def get_all_results():
+    return execute_query('''
+        SELECT u.full_name, q.title, r.score, r.total_time, r.completed_at 
+        FROM results r
+        JOIN users u ON r.user_id = u.user_id
+        JOIN quizzes q ON r.quiz_id = q.id
+        ORDER BY r.completed_at DESC
+    ''')
+
+def toggle_quiz_status(quiz_id: int):
+    """تغییر وضعیت فعال/غیرفعال آزمون"""
+    return execute_query('''
+        UPDATE quizzes 
+        SET is_active = NOT is_active 
+        WHERE id = %s
+    ''', (quiz_id,))
 
 def main():
     init_database()
+    download_welcome_photo()
     
     application = Application.builder().token(BOT_TOKEN).build()
     
     application.add_handler(CommandHandler("start", start))
-    
     application.add_handler(InlineQueryHandler(inline_query_handler))
     application.add_handler(ChosenInlineResultHandler(chosen_inline_result_handler))
+    application.add_handler(MessageHandler(filters.CONTACT, handle_contact))
+    application.add_handler(MessageHandler(filters.PHOTO, handle_admin_photos))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     application.add_handler(CallbackQueryHandler(handle_callback))
     
