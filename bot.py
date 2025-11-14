@@ -1688,8 +1688,11 @@ async def admin_add_question_to_bank(update: Update, context: ContextTypes.DEFAU
     if update.effective_user.id != ADMIN_ID:
         return
     
+    # پاک کردن داده‌های قبلی
     context.user_data['admin_action'] = 'adding_question_to_bank'
     context.user_data['question_bank_data'] = {}
+    
+    logger.info(f"Admin started adding question to bank")
     
     keyboard = [
         [InlineKeyboardButton("🔍 انتخاب مبحث", switch_inline_query_current_chat="")],
@@ -1700,10 +1703,10 @@ async def admin_add_question_to_bank(update: Update, context: ContextTypes.DEFAU
     await update.callback_query.edit_message_text(
         "📚 افزودن سوال به بانک:\n\n"
         "مرحله ۱/۳: انتخاب مبحث\n\n"
-        "روی دکمه زیر کلیک کنید و مبحث مورد نظر را انتخاب کنید:",
+        "روی دکمه 'انتخاب مبحث' کلیک کنید و مبحث مورد نظر را جستجو و انتخاب کنید.\n\n"
+        "💡 نکته: می‌توانید نام مبحث را تایپ کنید تا جستجو شود.",
         reply_markup=reply_markup
     )
-
 async def admin_manage_topics(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """مدیریت مباحث"""
     if update.effective_user.id != ADMIN_ID:
