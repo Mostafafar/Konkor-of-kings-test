@@ -1451,53 +1451,63 @@ async def handle_contact(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await show_main_menu(update, context)
 
+
 async def handle_admin_photos(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """پردازش عکس‌های ارسالی ادمین برای سوالات"""
+    """پردازش عکس‌های ارسالی ادمین"""
     if update.effective_user.id != ADMIN_ID:
         return
     
-    # اگر در حال افزودن سوال به بانک است
-    if 'admin_action' in context.user_data and context.user_data['admin_action'] == 'adding_question_to_bank':
+    # حالت افزودن سوال به بانک
+    if ('admin_action' in context.user_data and 
+        context.user_data['admin_action'] == 'adding_question_to_bank' and
+        'question_bank_data' in context.user_data):
+        
+        question_data = context.user_data['question_bank_data']
+        
         # بررسی اینکه آیا مبحث انتخاب شده است
-        if 'question_bank_data' not in context.user_data:
-            logger.error("question_bank_data not found in user_data")
-            await update.message.reply_text(
-                "❌ خطا! لطفاً دوباره از ابتدا شروع کنید.\n\n"
-                "از منوی ادمین گزینه 'افزودن سوال به بانک' را انتخاب کنید."
-            )
-            return
-            
-        if 'topic_id' not in context.user_data['question_bank_data']:
-            logger.error("topic_id not found in question_bank_data")
+        if 'topic_id' not in question_data:
             await update.message.reply_text(
                 "❌ ابتدا باید مبحث را انتخاب کنید!\n\n"
-                "لطفاً دوباره از دکمه 'افزودن سوال به بانک' استفاده کنید و مبحث را انتخاب کنید."
+                "لطفاً از منوی ادمین دوباره گزینه 'افزودن سوال به بانک' را انتخاب کنید."
+            )
+            return
+        
+        # بررسی اینکه در مرحله دریافت عکس هستیم
+        if question_data.get('step') != 'waiting_for_photo':
+            await update.message.reply_text(
+                "❌ در این مرحله نمی‌توانید عکس ارسال کنید!"
             )
             return
         
         try:
-            # دریافت عکس
+            # دریافت و ذخیره عکس
             photo_file = await update.message.photo[-1].get_file()
-            image_filename = f"question_bank_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg"
+            image_filename = f"question_bank_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{random.randint(1000, 9999)}.jpg"
             image_path = os.path.join(PHOTOS_DIR, image_filename)
             
             await photo_file.download_to_drive(image_path)
             
-            # ذخیره مسیر عکس
-            context.user_data['question_bank_data']['question_image'] = image_path
+            # ذخیره مسیر عکس و رفتن به مرحله بعد
+            question_data['question_image'] = image_path
+            question_data['step'] = 'waiting_for_answer'
+            context.user_data['question_bank_data'] = question_data
             
             logger.info(f"Question image saved: {image_path}")
             
             await update.message.reply_text(
                 "✅ عکس سوال ذخیره شد.\n\n"
-                "مرحله ۳/۳: تعیین پاسخ صحیح\n\n"
-                "لطفاً شماره گزینه صحیح را ارسال کنید (1 تا 4):"
+                "**مرحله ۳/۳: تعیین پاسخ صحیح**\n\n"
+                "لطفاً شماره گزینه صحیح را ارسال کنید (1 تا 4):",
+                parse_mode=ParseMode.MARKDOWN
             )
+            
         except Exception as e:
             logger.error(f"Error saving question image: {e}")
             await update.message.reply_text("❌ خطا در ذخیره عکس! لطفاً دوباره تلاش کنید.")
+        
         return
     
+    # بقیه کدهای مربوط به حالت‌های دیگر...
     # بقیه کد بدون تغییر...
     
     # حالت عادی برای ایجاد آزمون
