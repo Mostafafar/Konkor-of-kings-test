@@ -589,7 +589,7 @@ async def start_custom_quiz_creation(update: Update, context: ContextTypes.DEFAU
     )
 
 async def inline_query_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.inline_query.query
+    query = update.inline_query.query.strip().lower()
     results = []
     
     # اگر کاربر ادمین است و در حال افزودن سوال به بانک است
@@ -597,59 +597,62 @@ async def inline_query_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         topics = get_all_topics()
         for topic in topics:
             topic_id, name, description = topic
-            results.append(InlineQueryResultArticle(
-                id=f"topic_{topic_id}",
-                title=name,
-                description=description or "بدون توضیح",
-                input_message_content=InputTextMessageContent(
-                    f"مبحث انتخاب شده: {name}"
-                )
-            ))
+            # فیلتر کردن بر اساس جستجوی کاربر
+            if not query or query in name.lower() or (description and query in description.lower()):
+                results.append(InlineQueryResultArticle(
+                    id=f"topic_{topic_id}",
+                    title=name,
+                    description=description or "بدون توضیح",
+                    input_message_content=InputTextMessageContent(
+                        f"مبحث انتخاب شده: {name}"
+                    )
+                ))
     else:
         # حالت عادی برای کاربران
         topics = get_all_topics()
         for topic in topics:
             topic_id, name, description = topic
-            results.append(InlineQueryResultArticle(
-                id=str(topic_id),
-                title=name,
-                description=description or "بدون توضیح",
-                input_message_content=InputTextMessageContent(
-                    f"مبحث انتخاب شده: {name}"
-                )
-            ))
+            # فیلتر کردن بر اساس جستجوی کاربر
+            if not query or query in name.lower() or (description and query in description.lower()):
+                results.append(InlineQueryResultArticle(
+                    id=str(topic_id),
+                    title=name,
+                    description=description or "بدون توضیح",
+                    input_message_content=InputTextMessageContent(
+                        f"مبحث انتخاب شده: {name}"
+                    )
+                ))
     
-    await update.inline_query.answer(results)
-
+    await update.inline_query.answer(results, cache_time=1)
 async def chosen_inline_result_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     result_id = update.chosen_inline_result.result_id
     user_id = update.chosen_inline_result.from_user.id
     
     # اگر ادمین در حال افزودن سوال به بانک است
     if user_id == ADMIN_ID and 'admin_action' in context.user_data and context.user_data['admin_action'] == 'adding_question_to_bank':
-        if result_id.startswith("topic_"):
-            topic_id = int(result_id.split("_")[1])
+        # حذف پیشوند topic_ اگر وجود دارد
+        topic_id = int(result_id.replace("topic_", ""))
+        
+        # اطمینان از وجود question_bank_data
+        if 'question_bank_data' not in context.user_data:
+            context.user_data['question_bank_data'] = {}
+        
+        context.user_data['question_bank_data']['topic_id'] = topic_id
+        
+        topic_info = get_topic_by_id(topic_id)
+        if topic_info:
+            topic_name = topic_info[0][1]
             
-            # اطمینان از وجود question_bank_data
-            if 'question_bank_data' not in context.user_data:
-                context.user_data['question_bank_data'] = {}
-            
-            context.user_data['question_bank_data']['topic_id'] = topic_id
-            
-            topic_info = get_topic_by_id(topic_id)
-            if topic_info:
-                topic_name = topic_info[0][1]
-                
-                await context.bot.send_message(
-                    chat_id=user_id,
-                    text=f"✅ مبحث انتخاب شد: {topic_name}\n\n"
-                         f"📸 لطفاً عکس سوال را ارسال کنید:"
-                )
-            else:
-                await context.bot.send_message(
-                    chat_id=user_id,
-                    text="❌ خطا در دریافت اطلاعات مبحث! لطفاً دوباره تلاش کنید."
-                )
+            await context.bot.send_message(
+                chat_id=user_id,
+                text=f"✅ مبحث انتخاب شد: {topic_name}\n\n"
+                     f"📸 لطفاً عکس سوال را ارسال کنید:"
+            )
+        else:
+            await context.bot.send_message(
+                chat_id=user_id,
+                text="❌ خطا در دریافت اطلاعات مبحث! لطفاً دوباره تلاش کنید."
+            )
         return
     
     # حالت عادی برای کاربران
@@ -657,16 +660,17 @@ async def chosen_inline_result_handler(update: Update, context: ContextTypes.DEF
         return
     
     # افزودن مبحث به لیست انتخاب‌شده
-    if int(result_id) not in context.user_data['custom_quiz']['selected_topics']:
-        context.user_data['custom_quiz']['selected_topics'].append(int(result_id))
+    topic_id = int(result_id)
+    if topic_id not in context.user_data['custom_quiz']['selected_topics']:
+        context.user_data['custom_quiz']['selected_topics'].append(topic_id)
     
     # نمایش مباحث انتخاب شده
     selected_topics = context.user_data['custom_quiz']['selected_topics']
-    topics_text = "\n".join([get_topic_by_id(topic_id)[0][1] for topic_id in selected_topics])
+    topics_text = "\n".join([get_topic_by_id(tid)[0][1] for tid in selected_topics if get_topic_by_id(tid)])
     
     keyboard = [
         [InlineKeyboardButton("✅ ادامه تنظیمات", callback_data="custom_quiz_settings")],
-        [InlineKeyboardButton("🔍 افزودن مبحث دیگر", switch_inline_query_current_chat="")],
+        [InlineKeyboardButton("📚 افزودن مبحث دیگر", switch_inline_query_current_chat="")],
         [InlineKeyboardButton("🔙 بازگشت", callback_data="main_menu")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
