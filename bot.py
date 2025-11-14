@@ -1720,27 +1720,33 @@ async def start_adding_questions(update: Update, context: ContextTypes.DEFAULT_T
     )
 
 async def admin_add_question_to_bank(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """شروع فرآیند افزودن سوال به بانک با انتخاب مبحث از طریق اینلاین"""
+    """شروع فرآیند افزودن سوال به بانک"""
     if update.effective_user.id != ADMIN_ID:
         return
     
-    # پاک کردن داده‌های قبلی
-    context.user_data['admin_action'] = 'adding_question_to_bank'
-    context.user_data['question_bank_data'] = {}
+    # پاک کردن کامل state قبلی
+    context.user_data.clear()
     
-    logger.info(f"Admin started adding question to bank")
+    # تنظیم state جدید
+    context.user_data['admin_action'] = 'adding_question_to_bank'
+    context.user_data['question_bank_data'] = {
+        'step': 'selecting_topic'
+    }
+    
+    logger.info("Admin started adding question to bank - state cleared and reset")
     
     keyboard = [
-        [InlineKeyboardButton("🔍 انتخاب مبحث", switch_inline_query_current_chat="")],
+        [InlineKeyboardButton("🔍 انتخاب مبحث", switch_inline_query_current_chat="مبحث ")],
         [InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     await update.callback_query.edit_message_text(
         "📚 افزودن سوال به بانک:\n\n"
-        "مرحله ۱/۳: انتخاب مبحث\n\n"
-        "روی دکمه 'انتخاب مبحث' کلیک کنید و مبحث مورد نظر را جستجو و انتخاب کنید.\n\n"
+        "**مرحله ۱/۳: انتخاب مبحث**\n\n"
+        "روی دکمه '🔍 انتخاب مبحث' کلیک کنید و مبحث مورد نظر را جستجو و انتخاب کنید.\n\n"
         "💡 نکته: می‌توانید نام مبحث را تایپ کنید تا جستجو شود.",
+        parse_mode=ParseMode.MARKDOWN,
         reply_markup=reply_markup
     )
 async def admin_manage_topics(update: Update, context: ContextTypes.DEFAULT_TYPE):
