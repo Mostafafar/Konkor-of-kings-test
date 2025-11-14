@@ -1417,15 +1417,11 @@ async def handle_admin_photos(update: Update, context: ContextTypes.DEFAULT_TYPE
     
     # اگر در حال افزودن سوال به بانک است
     if 'admin_action' in context.user_data and context.user_data['admin_action'] == 'adding_question_to_bank':
-        # اطمینان از وجود question_bank_data
-        if 'question_bank_data' not in context.user_data:
-            context.user_data['question_bank_data'] = {}
-        
         # بررسی اینکه آیا مبحث انتخاب شده است
-        if 'topic_id' not in context.user_data['question_bank_data']:
+        if 'question_bank_data' not in context.user_data or 'topic_id' not in context.user_data.get('question_bank_data', {}):
             await update.message.reply_text(
                 "❌ ابتدا باید مبحث را انتخاب کنید!\n\n"
-                "لطفاً از دکمه '🔍 انتخاب مبحث' استفاده کنید."
+                "لطفاً دوباره از دکمه 'افزودن سوال به بانک' استفاده کنید."
             )
             return
         
