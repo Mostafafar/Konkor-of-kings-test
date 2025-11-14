@@ -629,6 +629,11 @@ async def chosen_inline_result_handler(update: Update, context: ContextTypes.DEF
     if user_id == ADMIN_ID and 'admin_action' in context.user_data and context.user_data['admin_action'] == 'adding_question_to_bank':
         if result_id.startswith("topic_"):
             topic_id = int(result_id.split("_")[1])
+            
+            # اطمینان از وجود question_bank_data
+            if 'question_bank_data' not in context.user_data:
+                context.user_data['question_bank_data'] = {}
+            
             context.user_data['question_bank_data']['topic_id'] = topic_id
             
             topic_info = get_topic_by_id(topic_id)
@@ -639,6 +644,11 @@ async def chosen_inline_result_handler(update: Update, context: ContextTypes.DEF
                     chat_id=user_id,
                     text=f"✅ مبحث انتخاب شد: {topic_name}\n\n"
                          f"📸 لطفاً عکس سوال را ارسال کنید:"
+                )
+            else:
+                await context.bot.send_message(
+                    chat_id=user_id,
+                    text="❌ خطا در دریافت اطلاعات مبحث! لطفاً دوباره تلاش کنید."
                 )
         return
     
@@ -666,7 +676,6 @@ async def chosen_inline_result_handler(update: Update, context: ContextTypes.DEF
         text=f"📚 مباحث انتخاب شده:\n{topics_text}\n\nتعداد: {len(selected_topics)} مبحث",
         reply_markup=reply_markup
     )
-
 async def custom_quiz_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['custom_quiz']['step'] = 'settings'
     
