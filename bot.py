@@ -1944,7 +1944,6 @@ def create_quiz(title: str, description: str, time_limit: int, by_admin: bool = 
         VALUES (%s, %s, %s, TRUE, %s) RETURNING id
     ''', (title, description, time_limit, by_admin), return_id=True)
     return result[0][0] if result else None
-
 def add_question(quiz_id: int, question_image: str, correct_answer: int, question_order: int):
     return execute_query('''
         INSERT INTO questions (quiz_id, question_image, correct_answer, question_order)
