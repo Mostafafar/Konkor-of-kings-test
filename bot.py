@@ -587,41 +587,83 @@ async def start_custom_quiz_creation(update: Update, context: ContextTypes.DEFAU
         "روی دکمه زیر کلیک کنید و مباحث مورد نظرتان را جستجو و انتخاب کنید:",
         reply_markup=reply_markup
     )
+def setup_question_bank_flow(context: ContextTypes.DEFAULT_TYPE, topic_id: int):
+    """تنظیم جریان افزودن سوال به بانک پس از انتخاب مبحث"""
+    try:
+        # حذف پیشوند topic_ اگر وجود دارد
+        if isinstance(topic_id, str) and topic_id.startswith("topic_"):
+            topic_id = int(topic_id.replace("topic_", ""))
+        else:
+            topic_id = int(topic_id)
+        
+        # تنظیم داده‌های مورد نیاز
+        context.user_data['question_bank_data'] = {'topic_id': topic_id}
+        context.user_data['admin_action'] = 'adding_question_to_bank'
+        
+        logger.info(f"Question bank flow setup for topic ID: {topic_id}")
+        return True
+        
+    except Exception as e:
+        logger.error(f"Error in setup_question_bank_flow: {e}")
+        return False
+
+async def continue_question_bank_flow(update: Update, context: ContextTypes.DEFAULT_TYPE, topic_id: int):
+    """ادامه جریان افزودن سوال به بانک"""
+    if not setup_question_bank_flow(context, topic_id):
+        await update.message.reply_text("❌ خطا در تنظیم فرآیند! لطفاً دوباره تلاش کنید.")
+        return False
+    
+    topic_info = get_topic_by_id(topic_id)
+    if not topic_info:
+        await update.message.reply_text("❌ اطلاعات مبحث یافت نشد!")
+        return False
+    
+    topic_name = topic_info[0][1]
+    
+    await context.bot.send_message(
+        chat_id=update.effective_user.id,
+        text=f"✅ مبحث انتخاب شد: {topic_name}\n\n"
+             f"مرحله ۲/۳: ارسال عکس سوال\n\n"
+             f"📸 لطفاً عکس سوال را ارسال کنید:"
+    )
+    
+    logger.info(f"Continued question bank flow for topic: {topic_name}")
+    return True
 
 async def inline_query_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.inline_query.query.strip().lower()
     results = []
     
-    # اگر کاربر ادمین است و در حال افزودن سوال به بانک است
-    if update.effective_user.id == ADMIN_ID and 'admin_action' in context.user_data and context.user_data['admin_action'] == 'adding_question_to_bank':
-        topics = get_all_topics()
-        for topic in topics:
-            topic_id, name, description = topic
-            # فیلتر کردن بر اساس جستجوی کاربر
-            if not query or query in name.lower() or (description and query in description.lower()):
-                results.append(InlineQueryResultArticle(
-                    id=f"topic_{topic_id}",
-                    title=name,
-                    description=description or "بدون توضیح",
-                    input_message_content=InputTextMessageContent(
-                        f"مبحث انتخاب شده: {name}"
-                    )
-                ))
-    else:
-        # حالت عادی برای کاربران
-        topics = get_all_topics()
-        for topic in topics:
-            topic_id, name, description = topic
-            # فیلتر کردن بر اساس جستجوی کاربر
-            if not query or query in name.lower() or (description and query in description.lower()):
-                results.append(InlineQueryResultArticle(
-                    id=str(topic_id),
-                    title=name,
-                    description=description or "بدون توضیح",
-                    input_message_content=InputTextMessageContent(
-                        f"مبحث انتخاب شده: {name}"
-                    )
-                ))
+    user_id = update.effective_user.id
+    is_admin = user_id == ADMIN_ID
+    
+    # بررسی اگر ادمین در حال افزودن سوال به بانک است
+    is_admin_adding_question = (is_admin and 
+                               'admin_action' in context.user_data and 
+                               context.user_data['admin_action'] == 'adding_question_to_bank')
+    
+    # حالت عادی برای کاربران یا ادمین
+    topics = get_all_topics()
+    for topic in topics:
+        topic_id, name, description = topic
+        
+        # فیلتر کردن بر اساس جستجوی کاربر
+        if not query or query in name.lower() or (description and query in description.lower()):
+            
+            # اگر ادمین در حال افزودن سوال است، از پیشوند topic_ استفاده کنید
+            if is_admin_adding_question:
+                result_id = f"topic_{topic_id}"
+            else:
+                result_id = str(topic_id)
+            
+            results.append(InlineQueryResultArticle(
+                id=result_id,
+                title=name,
+                description=description or "بدون توضیح",
+                input_message_content=InputTextMessageContent(
+                    f"مبحث انتخاب شده: {name}"
+                )
+            ))
     
     await update.inline_query.answer(results, cache_time=1)
 async def chosen_inline_result_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -631,46 +673,30 @@ async def chosen_inline_result_handler(update: Update, context: ContextTypes.DEF
     # اگر ادمین در حال افزودن سوال به بانک است
     if user_id == ADMIN_ID and 'admin_action' in context.user_data and context.user_data['admin_action'] == 'adding_question_to_bank':
         try:
-            # حذف پیشوند topic_ اگر وجود دارد
-            if result_id.startswith("topic_"):
-                topic_id = int(result_id.replace("topic_", ""))
-            else:
-                topic_id = int(result_id)
+            # استفاده از تابع کمکی برای تنظیم جریان
+            success = await continue_question_bank_flow(update, context, result_id)
             
-            # اطمینان از وجود question_bank_data
-            context.user_data['question_bank_data'] = {'topic_id': topic_id}
-
-            topic_info = get_topic_by_id(topic_id)
-            if topic_info:
-                topic_name = topic_info[0][1]
-                # اینجا فقط کافیست پیام مرحله بعد را ارسال کنید و اقدامات بعدی را انجام ندهید
-                await context.bot.send_message(
-                    chat_id=user_id,
-                    text=f"✅ مبحث انتخاب شد: {topic_name}\n\n"
-                         f"مرحله ۲/۳: ارسال عکس سوال\n\n"
-                         f"📸 لطفاً عکس سوال را ارسال کنید:"
-                )
-                # **نیازی به حذف admin_action یا question_bank_data ندارید پس آنها را پاک نکنید**
-                logger.info(f"Admin selected topic {topic_id} ({topic_name}) for question bank")
-            else:
-                await context.bot.send_message(
-                    chat_id=user_id,
-                    text="❌ خطا در دریافت اطلاعات مبحث! لطفاً دوباره تلاش کنید."
-                )
+            if not success:
+                # پاک کردن حالت در صورت خطا
                 if 'question_bank_data' in context.user_data:
                     del context.user_data['question_bank_data']
-                # فقط این قسمت پاک شود
-                # if 'admin_action' in context.user_data:
-                #     del context.user_data['admin_action']
+                if 'admin_action' in context.user_data:
+                    del context.user_data['admin_action']
+                    
         except Exception as e:
-            logger.error(f"Error in chosen_inline_result_handler: {e}")
+            logger.error(f"Error in chosen_inline_result_handler for admin: {e}")
             await context.bot.send_message(
                 chat_id=user_id,
                 text="❌ خطا در پردازش انتخاب! لطفاً دوباره تلاش کنید."
             )
+            # پاک کردن حالت در صورت خطا
+            if 'question_bank_data' in context.user_data:
+                del context.user_data['question_bank_data']
+            if 'admin_action' in context.user_data:
+                del context.user_data['admin_action']
         return
-    # بقیه حالت کاربران عادی بدون تغییر...
-    # حالت عادی برای کاربران
+    
+    # بقیه کد برای کاربران عادی (بدون تغییر)
     if 'custom_quiz' not in context.user_data:
         return
     
