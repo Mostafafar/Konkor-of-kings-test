@@ -627,7 +627,7 @@ async def inline_query_handler(update: Update, context: ContextTypes.DEFAULT_TYP
 async def chosen_inline_result_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     result_id = update.chosen_inline_result.result_id
     user_id = update.chosen_inline_result.from_user.id
-    
+
     # اگر ادمین در حال افزودن سوال به بانک است
     if user_id == ADMIN_ID and 'admin_action' in context.user_data and context.user_data['admin_action'] == 'adding_question_to_bank':
         try:
@@ -638,35 +638,30 @@ async def chosen_inline_result_handler(update: Update, context: ContextTypes.DEF
                 topic_id = int(result_id)
             
             # اطمینان از وجود question_bank_data
-            if 'question_bank_data' not in context.user_data:
-                context.user_data['question_bank_data'] = {}
-            
-            context.user_data['question_bank_data']['topic_id'] = topic_id
-            
+            context.user_data['question_bank_data'] = {'topic_id': topic_id}
+
             topic_info = get_topic_by_id(topic_id)
             if topic_info:
                 topic_name = topic_info[0][1]
-                
-                # ارسال پیام تأیید
+                # اینجا فقط کافیست پیام مرحله بعد را ارسال کنید و اقدامات بعدی را انجام ندهید
                 await context.bot.send_message(
                     chat_id=user_id,
                     text=f"✅ مبحث انتخاب شد: {topic_name}\n\n"
                          f"مرحله ۲/۳: ارسال عکس سوال\n\n"
                          f"📸 لطفاً عکس سوال را ارسال کنید:"
                 )
-                
+                # **نیازی به حذف admin_action یا question_bank_data ندارید پس آنها را پاک نکنید**
                 logger.info(f"Admin selected topic {topic_id} ({topic_name}) for question bank")
             else:
                 await context.bot.send_message(
                     chat_id=user_id,
                     text="❌ خطا در دریافت اطلاعات مبحث! لطفاً دوباره تلاش کنید."
                 )
-                # پاک کردن داده‌های موقت
                 if 'question_bank_data' in context.user_data:
                     del context.user_data['question_bank_data']
-                if 'admin_action' in context.user_data:
-                    del context.user_data['admin_action']
-                    
+                # فقط این قسمت پاک شود
+                # if 'admin_action' in context.user_data:
+                #     del context.user_data['admin_action']
         except Exception as e:
             logger.error(f"Error in chosen_inline_result_handler: {e}")
             await context.bot.send_message(
@@ -674,7 +669,7 @@ async def chosen_inline_result_handler(update: Update, context: ContextTypes.DEF
                 text="❌ خطا در پردازش انتخاب! لطفاً دوباره تلاش کنید."
             )
         return
-    
+    # بقیه حالت کاربران عادی بدون تغییر...
     # حالت عادی برای کاربران
     if 'custom_quiz' not in context.user_data:
         return
