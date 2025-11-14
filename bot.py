@@ -100,7 +100,7 @@ def init_database():
             )
         ''')
         
-        # جدول آزمون‌ها
+        # جدول آزمون‌ها - اضافه کردن ستون created_by_admin
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS quizzes (
                 id SERIAL PRIMARY KEY,
@@ -113,7 +113,18 @@ def init_database():
             )
         ''')
         
-        # جدول سوالات
+        # اضافه کردن ستون created_by_admin اگر وجود ندارد
+        cursor.execute('''
+            DO $$ 
+            BEGIN 
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                              WHERE table_name='quizzes' AND column_name='created_by_admin') THEN
+                    ALTER TABLE quizzes ADD COLUMN created_by_admin BOOLEAN DEFAULT FALSE;
+                END IF;
+            END $$;
+        ''')
+        
+        # بقیه جداول...
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS questions (
                 id SERIAL PRIMARY KEY,
@@ -126,7 +137,6 @@ def init_database():
             )
         ''')
         
-        # جدول پاسخ‌های کاربران
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS user_answers (
                 id SERIAL PRIMARY KEY,
@@ -139,7 +149,6 @@ def init_database():
             )
         ''')
         
-        # جدول نتایج
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS results (
                 id SERIAL PRIMARY KEY,
@@ -155,7 +164,6 @@ def init_database():
             )
         ''')
         
-        # جدول مباحث
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS topics (
                 id SERIAL PRIMARY KEY,
@@ -166,7 +174,6 @@ def init_database():
             )
         ''')
         
-        # جدول بانک سوالات
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS question_bank (
                 id SERIAL PRIMARY KEY,
@@ -183,7 +190,6 @@ def init_database():
             )
         ''')
         
-        # جدول قالب‌های آزمون
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS quiz_templates (
                 id SERIAL PRIMARY KEY,
@@ -204,6 +210,7 @@ def init_database():
         logger.error(f"Database initialization error: {e}")
         if db_connection:
             db_connection.rollback()
+        
 
 def execute_query(query: str, params: tuple = None, return_id: bool = False):
     """اجرای کوئری و بازگشت نتیجه"""
@@ -243,7 +250,6 @@ def get_active_quizzes():
     return execute_query(
         "SELECT id, title, description, time_limit, created_by_admin FROM quizzes WHERE is_active = TRUE ORDER BY id"
     )
-
 # توابع مباحث
 def get_all_topics():
     return execute_query("SELECT id, name, description FROM topics WHERE is_active = TRUE ORDER BY name")
