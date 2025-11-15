@@ -662,31 +662,34 @@ async def inline_query_handler(update: Update, context: ContextTypes.DEFAULT_TYP
 async def chosen_inline_result_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     result_id = update.chosen_inline_result.result_id
     user_id = update.chosen_inline_result.from_user.id
-    query = update.chosen_inline_result.query.strip().lower()
+    query = update.chosen_inline_result.query
 
     logger.info(f"Chosen inline result - User: {user_id}, Result ID: {result_id}, Query: {query}")
 
-    # === حالت ادمین: افزودن سوال به بانک ===
+    # حالت ادمین - افزودن سوال به بانک
     if user_id == ADMIN_ID:
         # بررسی اینکه آیا ادمین در حالت افزودن سوال است
-        if ('admin_action' in context.user_data and 
-            context.user_data['admin_action'] == 'adding_question_to_bank'):
-
-            # اگر result_id شامل topic_ باشد، یعنی از inline انتخاب شده
-            if result_id.startswith("topic_"):
-                topic_id = int(result_id.replace("topic_", ""))
+        is_adding_question = (
+            'admin_action' in context.user_data and 
+            context.user_data['admin_action'] == 'adding_question_to_bank'
+        )
+        
+        if not is_adding_question:
+            # اگر نه، بررسی کنیم که آیا query مربوط به مباحث است
+            if any(keyword in query.lower() for keyword in ['مبحث', 'topic', 'درس', 'بحث']):
+                logger.info(f"Admin {user_id} selected topic without proper state, setting up flow...")
+                # مستقیم فرآیند را شروع کنیم
+                success = await handle_admin_question_bank_flow(update, context, result_id)
+                return
             else:
-                topic_id = int(result_id)
-
-            # ادامه جریان
-            await handle_admin_question_bank_flow(update, context, topic_id)
-            return
-
-        # اگر ادمین نباشد در این حالت، ولی از inline استفاده کرده
-        # (مثلاً از طریق جستجوی دستی) → نادیده بگیر
+                # حالت دیگر برای ادمین
+                return
+        
+        # اگر در حالت افزودن سوال است، ادامه دهید
+        success = await handle_admin_question_bank_flow(update, context, result_id)
         return
 
-    # === حالت کاربر عادی: آزمون سفارشی ===
+    # حالت کاربر عادی - آزمون سفارشی (کد قبلی)
     if 'custom_quiz' in context.user_data:
         try:
             topic_id = int(result_id)
@@ -694,20 +697,18 @@ async def chosen_inline_result_handler(update: Update, context: ContextTypes.DEF
                 context.user_data['custom_quiz']['selected_topics'].append(topic_id)
             
             selected_topics = context.user_data['custom_quiz']['selected_topics']
-            topics_text = "\n".join([
-                get_topic_by_id(tid)[0][1] for tid in selected_topics if get_topic_by_id(tid)
-            ])
+            topics_text = "\n".join([get_topic_by_id(tid)[0][1] for tid in selected_topics if get_topic_by_id(tid)])
             
             keyboard = [
-                [InlineKeyboardButton("ادامه تنظیمات", callback_data="custom_quiz_settings")],
-                [InlineKeyboardButton("افزودن مبحث دیگر", switch_inline_query_current_chat="")],
-                [InlineKeyboardButton("بازگشت", callback_data="main_menu")]
+                [InlineKeyboardButton("✅ ادامه تنظیمات", callback_data="custom_quiz_settings")],
+                [InlineKeyboardButton("📚 افزودن مبحث دیگر", switch_inline_query_current_chat="")],
+                [InlineKeyboardButton("🔙 بازگشت", callback_data="main_menu")]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
             await context.bot.send_message(
                 chat_id=user_id,
-                text=f"مباحث انتخاب شده:\n{topics_text}\n\nتعداد: {len(selected_topics)} مبحث",
+                text=f"📚 مباحث انتخاب شده:\n{topics_text}\n\nتعداد: {len(selected_topics)} مبحث",
                 reply_markup=reply_markup
             )
         except Exception as e:
