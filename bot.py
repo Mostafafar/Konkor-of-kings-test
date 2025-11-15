@@ -1720,52 +1720,82 @@ async def start_adding_questions(update: Update, context: ContextTypes.DEFAULT_T
         "لطفاً عکس سوال را ارسال کنید:"
     )
 
-async def handle_admin_question_bank_flow(update: Update, context: ContextTypes.DEFAULT_TYPE, topic_id: int):
-    """ادامه جریان افزودن سوال به بانک پس از انتخاب مبحث"""
+async def admin_add_question_to_bank(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """شروع فرآیند افزودن سوال به بانک"""
+    if update.effective_user.id != ADMIN_ID:
+        return
+    
+    # پاک کردن کامل state قبلی
+    context.user_data.clear()
+    
+    # تنظیم state جدید
+    context.user_data['admin_action'] = 'adding_question_to_bank'
+    context.user_data['question_bank_data'] = {
+        'step': 'selecting_topic'
+    }
+    
+    logger.info("Admin started adding question to bank - state cleared and reset")
+    
+    keyboard = [
+        [InlineKeyboardButton("🔍 انتخاب مبحث", switch_inline_query_current_chat="مبحث ")],
+        [InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.callback_query.edit_message_text(
+        "📚 افزودن سوال به بانک:\n\n"
+        "**مرحله ۱/۳: انتخاب مبحث**\n\n"
+        "روی دکمه '🔍 انتخاب مبحث' کلیک کنید و مبحث مورد نظر را جستجو و انتخاب کنید.\n\n"
+        "💡 نکته: می‌توانید نام مبحث را تایپ کنید تا جستجو شود.",
+        parse_mode=ParseMode.MARKDOWN,
+        reply_markup=reply_markup
+    )
+
+async def handle_admin_question_bank_flow(update: Update, context: ContextTypes.DEFAULT_TYPE, result_id: str):
+    """مدیریت جریان افزودن سوال به بانک برای ادمین"""
     try:
-        # اعتبارسنجی topic_id
-        if isinstance(topic_id, str):
-            if topic_id.startswith("topic_"):
-                topic_id = int(topic_id.replace("topic_", ""))
-            else:
-                topic_id = int(topic_id)
-
-        # بررسی وجود مبحث
-        topic_info = get_topic_by_id(topic_id)
-        if not topic_info:
-            await context.bot.send_message(
-                chat_id=update.effective_user.id,
-                text="مبحث انتخاب‌شده معتبر نیست! لطفاً دوباره تلاش کنید.",
-                reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("انتخاب مبحث", switch_inline_query_current_chat="مبحث ")
-                ]])
-            )
-            return
-
-        # تنظیم داده‌های جریان
+        # استخراج topic_id از result_id
+        if result_id.startswith("topic_"):
+            topic_id = int(result_id.replace("topic_", ""))
+        else:
+            topic_id = int(result_id)
+        
+        # تنظیم داده‌های مورد نیاز
         context.user_data['question_bank_data'] = {
             'topic_id': topic_id,
             'step': 'waiting_for_photo'
         }
-
+        context.user_data['admin_action'] = 'adding_question_to_bank'
+        
+        # دریافت اطلاعات مبحث
+        topic_info = get_topic_by_id(topic_id)
+        if not topic_info:
+            await context.bot.send_message(
+                chat_id=update.effective_user.id,
+                text="❌ اطلاعات مبحث یافت نشد!"
+            )
+            return False
+        
         topic_name = topic_info[0][1]
-
+        
         await context.bot.send_message(
             chat_id=update.effective_user.id,
-            text=f"مبحث انتخاب شد: {topic_name}\n\n"
+            text=f"✅ مبحث انتخاب شد: {topic_name}\n\n"
                  f"**مرحله ۲/۳: ارسال عکس سوال**\n\n"
-                 f"لطفاً عکس سوال را ارسال کنید:",
+                 f"📸 لطفاً عکس سوال را ارسال کنید:",
             parse_mode=ParseMode.MARKDOWN
         )
-
-        logger.info(f"Admin selected topic {topic_id} ({topic_name}), waiting for photo.")
-
+        
+        logger.info(f"Admin question bank flow continued for topic: {topic_name}")
+        return True
+        
     except Exception as e:
         logger.error(f"Error in handle_admin_question_bank_flow: {e}")
         await context.bot.send_message(
             chat_id=update.effective_user.id,
-            text="خطا در پردازش مبحث! لطفاً دوباره شروع کنید."
+            text="❌ خطا در پردازش انتخاب مبحث! لطفاً دوباره تلاش کنید."
         )
+        return False
 async def admin_manage_topics(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """مدیریت مباحث"""
     if update.effective_user.id != ADMIN_ID:
