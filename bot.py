@@ -630,67 +630,47 @@ async def continue_question_bank_flow(update: Update, context: ContextTypes.DEFA
     logger.info(f"Continued question bank flow for topic: {topic_name}")
     return True
 
-async def inline_query_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.inline_query.query.strip().lower()
-    results = []
-    
-    user_id = update.effective_user.id
-    is_admin = user_id == ADMIN_ID
-    
-    # بررسی حالت ادمین در افزودن سوال
-    is_admin_adding = (is_admin and 
-                       'admin_action' in context.user_data and 
-                       context.user_data['admin_action'] == 'adding_question_to_bank')
-
-    topics = get_all_topics()
-    for topic in topics:
-        topic_id, name, description = topic
-        
-        if not query or query in name.lower() or (description and query in description.lower()):
-            # برای ادمین در حالت افزودن سوال → result_id با پیشوند
-            result_id = f"topic_{topic_id}" if is_admin_adding else str(topic_id)
-            
-            results.append(InlineQueryResultArticle(
-                id=result_id,
-                title=name,
-                description=description or "بدون توضیح",
-                input_message_content=InputTextMessageContent(f"مبحث انتخاب شده: {name}")
-            ))
-    
-    await update.inline_query.answer(results, cache_time=1)
-
 async def chosen_inline_result_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     result_id = update.chosen_inline_result.result_id
     user_id = update.chosen_inline_result.from_user.id
     query = update.chosen_inline_result.query
 
-    logger.info(f"Chosen inline result - User: {user_id}, Result ID: {result_id}, Query: {query}")
+    logger.info(f"🎯 CHOSEN_INLINE: User: {user_id}, Result ID: '{result_id}', Query: '{query}'")
+    logger.info(f"🎯 CHOSEN_INLINE: Full update: {update.chosen_inline_result}")
 
     # حالت ادمین - افزودن سوال به بانک
     if user_id == ADMIN_ID:
+        logger.info("🎯 CHOSEN_INLINE: Admin user detected")
+        
         # بررسی اینکه آیا ادمین در حالت افزودن سوال است
         is_adding_question = (
             'admin_action' in context.user_data and 
             context.user_data['admin_action'] == 'adding_question_to_bank'
         )
         
+        logger.info(f"🎯 CHOSEN_INLINE: is_adding_question: {is_adding_question}")
+        logger.info(f"🎯 CHOSEN_INLINE: Context keys: {list(context.user_data.keys())}")
+        
         if not is_adding_question:
+            logger.info("🎯 CHOSEN_INLINE: Admin not in adding question state, checking query...")
             # اگر نه، بررسی کنیم که آیا query مربوط به مباحث است
             if any(keyword in query.lower() for keyword in ['مبحث', 'topic', 'درس', 'بحث']):
-                logger.info(f"Admin {user_id} selected topic without proper state, setting up flow...")
+                logger.info(f"🎯 CHOSEN_INLINE: Query contains topic keywords, setting up flow...")
                 # مستقیم فرآیند را شروع کنیم
                 success = await handle_admin_question_bank_flow(update, context, result_id)
                 return
             else:
-                # حالت دیگر برای ادمین
+                logger.info("🎯 CHOSEN_INLINE: Query doesn't contain topic keywords, ignoring")
                 return
         
         # اگر در حالت افزودن سوال است، ادامه دهید
+        logger.info("🎯 CHOSEN_INLINE: Admin is in adding question state, continuing flow...")
         success = await handle_admin_question_bank_flow(update, context, result_id)
         return
 
-    # حالت کاربر عادی - آزمون سفارشی (کد قبلی)
+    # حالت کاربر عادی - آزمون سفارشی
     if 'custom_quiz' in context.user_data:
+        logger.info("🎯 CHOSEN_INLINE: Handling custom quiz for normal user")
         try:
             topic_id = int(result_id)
             if topic_id not in context.user_data['custom_quiz']['selected_topics']:
@@ -711,8 +691,30 @@ async def chosen_inline_result_handler(update: Update, context: ContextTypes.DEF
                 text=f"📚 مباحث انتخاب شده:\n{topics_text}\n\nتعداد: {len(selected_topics)} مبحث",
                 reply_markup=reply_markup
             )
+            logger.info("🎯 CHOSEN_INLINE: Custom quiz topic added successfully")
         except Exception as e:
-            logger.error(f"Error in chosen_inline_result_handler for user quiz: {e}")
+            logger.error(f"❌ CHOSEN_INLINE: Error in chosen_inline_result_handler for user quiz: {e}")
+    else:
+        logger.info("🎯 CHOSEN_INLINE: Normal user but no custom_quiz in context")
+async def debug_context(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """تابع دیباگ برای بررسی وضعیت context"""
+    user_id = update.effective_user.id
+    if user_id != ADMIN_ID:
+        return
+    
+    context_info = {
+        'user_data_keys': list(context.user_data.keys()),
+        'user_data_values': {key: str(context.user_data[key]) for key in context.user_data.keys()}
+    }
+    
+    debug_text = f"🔍 دیباگ Context:\n```{context_info}```"
+    
+    await context.bot.send_message(
+        chat_id=user_id,
+        text=debug_text,
+        parse_mode=ParseMode.MARKDOWN
+    )
+
 async def custom_quiz_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['custom_quiz']['step'] = 'settings'
     
@@ -2199,6 +2201,7 @@ def main():
     application = Application.builder().token(BOT_TOKEN).build()
     
     application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("debug", debug_context))
     application.add_handler(InlineQueryHandler(inline_query_handler))
     application.add_handler(ChosenInlineResultHandler(chosen_inline_result_handler))
     application.add_handler(MessageHandler(filters.CONTACT, handle_contact))
