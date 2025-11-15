@@ -633,38 +633,52 @@ async def continue_question_bank_flow(update: Update, context: ContextTypes.DEFA
 async def chosen_inline_result_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     result_id = update.chosen_inline_result.result_id
     user_id = update.chosen_inline_result.from_user.id
-    query = update.chosen_inline_result.query
 
-    logger.info(f"🎯 CHOSEN_INLINE: User: {user_id}, Result ID: '{result_id}', Query: '{query}'")
-    logger.info(f"🎯 CHOSEN_INLINE: Full update: {update.chosen_inline_result}")
+    logger.info(f"🎯 CHOSEN_INLINE: User: {user_id}, Result ID: '{result_id}'")
 
-    # حالت ادمین - افزودن سوال به بانک
-    if user_id == ADMIN_ID:
-        logger.info("🎯 CHOSEN_INLINE: Admin user detected")
-        
-        # بررسی اینکه آیا result_id با topic_ شروع می‌شود (نشانه انتخاب مبحث توسط ادمین)
+    if user_id != ADMIN_ID:
+        return
+
+    # بررسی وضعیت ادمین
+    is_adding_question = (
+        'admin_action' in context.user_data and 
+        context.user_data['admin_action'] == 'adding_question_to_bank'
+    )
+
+    if not is_adding_question:
+        logger.info("🎯 CHOSEN_INLINE: Admin not in adding_question_to_bank state")
+        return
+
+    # پردازش result_id (با یا بدون topic_)
+    try:
         if result_id.startswith("topic_"):
-            logger.info(f"🎯 CHOSEN_INLINE: Admin selected topic with result_id: {result_id}")
-            # مستقیماً فرآیند را شروع کنیم
-            success = await handle_admin_question_bank_flow(update, context, result_id)
-            return
+            topic_id = int(result_id.replace("topic_", ""))
+        else:
+            topic_id = int(result_id)  # اگر بدون پیشوند باشد
+
+        logger.info(f"🎯 CHOSEN_INLINE: Admin selected topic ID: {topic_id}")
+        success = await handle_admin_question_bank_flow(update, context, str(topic_id))
         
-        # بررسی اینکه آیا ادمین در حالت افزودن سوال است
-        is_adding_question = (
-            'admin_action' in context.user_data and 
-            context.user_data['admin_action'] == 'adding_question_to_bank'
+        if not success:
+            await context.bot.send_message(
+                chat_id=user_id,
+                text="❌ خطا در پردازش انتخاب مبحث! لطفاً دوباره تلاش کنید."
+            )
+        return
+
+    except ValueError as e:
+        logger.error(f"❌ CHOSEN_INLINE: Invalid topic ID: {result_id}, error: {e}")
+        await context.bot.send_message(
+            chat_id=user_id,
+            text=f"❌ خطا: شناسه مبحث نامعتبر است ('{result_id}')"
         )
-        
-        logger.info(f"🎯 CHOSEN_INLINE: is_adding_question: {is_adding_question}")
-        logger.info(f"🎯 CHOSEN_INLINE: Context keys: {list(context.user_data.keys())}")
-        
-        if is_adding_question:
-            # اگر در حالت افزودن سوال است، ادامه دهید
-            logger.info("🎯 CHOSEN_INLINE: Admin is in adding question state, continuing flow...")
-            success = await handle_admin_question_bank_flow(update, context, result_id)
-            return
-        
-        logger.info("🎯 CHOSEN_INLINE: Admin action not recognized, ignoring")
+        return
+    except Exception as e:
+        logger.error(f"❌ CHOSEN_INLINE: Unexpected error: {e}")
+        await context.bot.send_message(
+            chat_id=user_id,
+            text="❌ خطای غیرمنتظره در پردازش انتخاب مبحث! لطفاً دوباره تلاش کنید."
+        )
         return
 async def debug_context(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """تابع دیباگ برای بررسی وضعیت context"""
@@ -1700,8 +1714,9 @@ async def admin_add_question_to_bank(update: Update, context: ContextTypes.DEFAU
     
     logger.info("🔧 ADMIN: Starting admin_add_question_to_bank")
     
-    # پاک کردن کامل state قبلی
-    context.user_data.clear()
+    # پاک کردن state قبلی
+    context.user_data.pop('admin_action', None)
+    context.user_data.pop('question_bank_data', None)
     
     # تنظیم state جدید
     context.user_data['admin_action'] = 'adding_question_to_bank'
@@ -1728,7 +1743,6 @@ async def admin_add_question_to_bank(update: Update, context: ContextTypes.DEFAU
     )
     
     logger.info("🔧 ADMIN: admin_add_question_to_bank completed")
-
 async def inline_query_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.inline_query.query.strip().lower()
     user_id = update.effective_user.id
@@ -1744,7 +1758,6 @@ async def inline_query_handler(update: Update, context: ContextTypes.DEFAULT_TYP
                                context.user_data['admin_action'] == 'adding_question_to_bank')
     
     logger.info(f"🔍 INLINE_QUERY: is_admin_adding_question: {is_admin_adding_question}")
-    logger.info(f"🔍 INLINE_QUERY: Context admin_action: {context.user_data.get('admin_action')}")
     
     # حالت عادی برای کاربران یا ادمین
     topics = get_all_topics()
