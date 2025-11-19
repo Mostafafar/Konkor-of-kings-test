@@ -588,95 +588,111 @@ async def start_custom_quiz_creation(update: Update, context: ContextTypes.DEFAU
         reply_markup=reply_markup
     )
 
-
-async def chosen_inline_result_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """مدیریت انتخاب نتیجه اینلاین برای ادمین"""
-    try:
-        chosen_result = update.chosen_inline_result
-        user_id = chosen_result.from_user.id
-        result_id = chosen_result.result_id
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """مدیریت پیام‌های متنی"""
+    if update.message.contact:
+        await handle_contact(update, context)
+    elif update.message.text or update.message.photo:
+        # بررسی اگر ادمین در حال ارسال پیام همگانی است
+        if (update.effective_user.id == ADMIN_ID and 
+            'admin_action' in context.user_data and 
+            context.user_data['admin_action'] == 'broadcasting'):
+            await handle_broadcast(update, context)
         
-        logger.info(f"🎯 CHOSEN_INLINE_RESULT: User {user_id}, Result ID: '{result_id}'")
-        
-        # فقط ادمین مجاز است
-        if user_id != ADMIN_ID:
-            logger.info("🎯 CHOSEN_INLINE: Ignored - user is not admin")
-            return
-        
-        # بررسی اگر ادمین در حال افزودن سوال به بانک است
-        is_adding_question = (
-            context.user_data.get('admin_action') == 'adding_question_to_bank'
-        )
-        
-        logger.info(f"🎯 CHOSEN_INLINE: Admin adding question state: {is_adding_question}")
-        logger.info(f"🎯 CHOSEN_INLINE: Current context: {context.user_data}")
-        
-        if not is_adding_question:
-            logger.info("🎯 CHOSEN_INLINE: Admin not in adding_question_to_bank state, ignoring")
-            return
-        
-        # استخراج topic_id از result_id
-        if result_id.startswith("topic_"):
-            topic_id = int(result_id.replace("topic_", ""))
+        # بررسی اگر ادمین در حال افزودن سوال به بانک است و متن مربوط به انتخاب مبحث است
+        elif (update.effective_user.id == ADMIN_ID and 
+              'admin_action' in context.user_data and 
+              context.user_data['admin_action'] == 'adding_question_to_bank' and
+              update.message.text and 
+              update.message.text.startswith('مبحث انتخاب شده:')):
+            
+            await handle_topic_selection_from_message(update, context)
+            
+        elif update.effective_user.id == ADMIN_ID:
+            # بررسی اگر ادمین در حال افزودن مبحث است
+            if 'admin_action' in context.user_data and context.user_data['admin_action'] == 'adding_topic':
+                text = update.message.text
+                topic_data = context.user_data.get('topic_data', {})
+                
+                if topic_data.get('step') == 'name':
+                    topic_data['name'] = text
+                    topic_data['step'] = 'description'
+                    context.user_data['topic_data'] = topic_data
+                    
+                    await update.message.reply_text(
+                        "✅ نام مبحث ذخیره شد.\n\n"
+                        "لطفاً توضیحات مبحث را ارسال کنید (اختیاری):\n\n"
+                        "💡 می‌توانید 'ندارد' را ارسال کنید تا از توضیحات صرف نظر کنید."
+                    )
+                elif topic_data.get('step') == 'description':
+                    description = text if text != 'ندارد' else ""
+                    
+                    # ذخیره مبحث در دیتابیس
+                    result = add_topic(topic_data['name'], description)
+                    
+                    if result:
+                        await update.message.reply_text(
+                            f"✅ مبحث '{topic_data['name']}' با موفقیت اضافه شد!"
+                        )
+                    else:
+                        await update.message.reply_text(
+                            "❌ خطا در افزودن مبحث! ممکن است مبحثی با این نام از قبل وجود داشته باشد."
+                        )
+                    
+                    # پاک کردن داده‌های موقت
+                    if 'topic_data' in context.user_data:
+                        del context.user_data['topic_data']
+                    if 'admin_action' in context.user_data:
+                        del context.user_data['admin_action']
+                return
+            
+            await handle_admin_text(update, context)
         else:
-            topic_id = int(result_id)
+            await update.message.reply_text("لطفاً از منوی ربات استفاده کنید.")
+
+async def handle_topic_selection_from_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """پردازش انتخاب مبحث از طریق پیام"""
+    try:
+        text = update.message.text
+        logger.info(f"🎯 TOPIC_SELECTION: Processing topic selection: {text}")
         
-        logger.info(f"🎯 CHOSEN_INLINE: Topic ID extracted: {topic_id}")
+        # استخراج نام مبحث از متن
+        # متن به این شکل است: "مبحث انتخاب شده: شروع الکتروشیمی و مفهوم اکسنده و کاهنده"
+        topic_name = text.replace("مبحث انتخاب شده:", "").strip()
         
-        # دریافت اطلاعات مبحث
-        topic_info = get_topic_by_id(topic_id)
+        # پیدا کردن مبحث در دیتابیس
+        topic_info = get_topic_by_name(topic_name)
         if not topic_info:
-            logger.error(f"❌ CHOSEN_INLINE: Topic not found for ID: {topic_id}")
-            await context.bot.send_message(
-                chat_id=ADMIN_ID,
-                text="❌ اطلاعات مبحث یافت نشد!"
+            logger.error(f"❌ TOPIC_SELECTION: Topic not found: {topic_name}")
+            await update.message.reply_text(
+                f"❌ مبحث '{topic_name}' یافت نشد! لطفاً دوباره تلاش کنید."
             )
             return
         
-        topic_name = topic_info[0][1]
+        topic_id, name, description = topic_info[0]
+        logger.info(f"✅ TOPIC_SELECTION: Found topic - ID: {topic_id}, Name: {name}")
         
-        # به‌روزرسانی مستقیم context.user_data
+        # به‌روزرسانی context
         context.user_data['question_bank_data'] = {
             'topic_id': topic_id,
-            'step': 'waiting_for_photo',
-            'topic_name': topic_name
+            'topic_name': name,
+            'step': 'waiting_for_photo'
         }
         context.user_data['admin_action'] = 'adding_question_to_bank'
         
-        logger.info(f"✅ CHOSEN_INLINE: Context updated successfully")
-        logger.info(f"📝 CHOSEN_INLINE: question_bank_data = {context.user_data.get('question_bank_data')}")
+        logger.info(f"✅ TOPIC_SELECTION: Context updated: {context.user_data['question_bank_data']}")
         
-        # ارسال پیام تأیید به ادمین
-        await context.bot.send_message(
-            chat_id=ADMIN_ID,
-            text=(
-                f"✅ مبحث انتخاب شد: **{topic_name}**\n\n"
-                f"**مرحله ۲/۳: ارسال عکس سوال**\n\n"
-                f"📸 لطفاً عکس سوال را ارسال کنید:"
-            ),
+        await update.message.reply_text(
+            f"✅ مبحث انتخاب شد: **{name}**\n\n"
+            f"**مرحله ۲/۳: ارسال عکس سوال**\n\n"
+            f"📸 لطفاً عکس سوال را ارسال کنید:",
             parse_mode=ParseMode.MARKDOWN
         )
         
-        logger.info("✅ CHOSEN_INLINE: Admin moved to photo stage successfully")
-        
-    except ValueError as e:
-        logger.error(f"❌ CHOSEN_INLINE: Invalid result_id '{result_id}': {e}")
-        try:
-            await context.bot.send_message(
-                chat_id=ADMIN_ID,
-                text=f"❌ خطا: شناسه مبحث نامعتبر ('{result_id}')"
-            )
-        except:
-            pass
     except Exception as e:
-        logger.error(f"❌ CHOSEN_INLINE: Unexpected error: {e}")
-        try:
-            await context.bot.send_message(
-                chat_id=ADMIN_ID,
-                text="❌ خطای غیرمنتظره در پردازش انتخاب مبحث! لطفاً دوباره تلاش کنید."
-            )
-        except:
-            pass
+        logger.error(f"❌ TOPIC_SELECTION: Error: {e}")
+        await update.message.reply_text("❌ خطا در پردازش انتخاب مبحث! لطفاً دوباره تلاش کنید.")
+
 
 
 
