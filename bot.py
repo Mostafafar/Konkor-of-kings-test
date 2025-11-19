@@ -577,6 +577,15 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await generate_custom_quiz(update, context)
     elif data == "admin_add_topic":
         await admin_add_topic(update, context)
+    # اضافه کردن در handle_callback
+    elif data == "set_count_menu":
+        await set_count_menu(update, context)
+    elif data == "set_time_menu":
+        await set_time_menu(update, context)
+    elif data == "set_difficulty_menu":
+        await set_difficulty_menu(update, context)
+    elif data == "clear_custom_topics":
+        await clear_custom_topics(update, context)
 
 # ساخت آزمون سفارشی
 async def start_custom_quiz_creation(update: Update, context: ContextTypes.DEFAULT_TYPE):
