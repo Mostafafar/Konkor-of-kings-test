@@ -259,6 +259,17 @@ def get_topic_by_id(topic_id: int):
 
 def get_topic_by_name(name: str):
     return execute_query("SELECT id, name, description FROM topics WHERE name = %s AND is_active = TRUE", (name,))
+def get_questions_count_by_topic(topic_id: int):
+    """دریافت تعداد سوالات موجود برای یک مبحث"""
+    return execute_query(
+        "SELECT COUNT(*) FROM question_bank WHERE topic_id = %s AND is_active = TRUE",
+        (topic_id,)
+    )
+
+def get_topic_name(topic_id: int):
+    """دریافت نام مبحث بر اساس ID"""
+    result = execute_query("SELECT name FROM topics WHERE id = %s", (topic_id,))
+    return result[0][0] if result else "نامشخص"
 
 def add_topic(name: str, description: str = ""):
     return execute_query(
