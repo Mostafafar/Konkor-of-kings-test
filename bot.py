@@ -590,7 +590,7 @@ async def start_custom_quiz_creation(update: Update, context: ContextTypes.DEFAU
 
 
 async def chosen_inline_result_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """مدیریت انتخاب نتیجه اینلاین"""
+    """مدیریت انتخاب نتیجه اینلاین برای ادمین"""
     try:
         chosen_result = update.chosen_inline_result
         user_id = chosen_result.from_user.id
@@ -600,23 +600,83 @@ async def chosen_inline_result_handler(update: Update, context: ContextTypes.DEF
         
         # فقط ادمین مجاز است
         if user_id != ADMIN_ID:
+            logger.info("🎯 CHOSEN_INLINE: Ignored - user is not admin")
             return
         
         # بررسی اگر ادمین در حال افزودن سوال به بانک است
         is_adding_question = (
-            'admin_action' in context.user_data and 
-            context.user_data['admin_action'] == 'adding_question_to_bank'
+            context.user_data.get('admin_action') == 'adding_question_to_bank'
         )
         
+        logger.info(f"🎯 CHOSEN_INLINE: Admin adding question state: {is_adding_question}")
+        logger.info(f"🎯 CHOSEN_INLINE: Current context: {context.user_data}")
+        
         if not is_adding_question:
-            logger.info("🎯 CHOSEN_INLINE: Admin not in adding_question_to_bank state")
+            logger.info("🎯 CHOSEN_INLINE: Admin not in adding_question_to_bank state, ignoring")
             return
         
-        # پردازش انتخاب مبحث
-        await handle_admin_question_bank_flow(update, context, result_id)
+        # استخراج topic_id از result_id
+        if result_id.startswith("topic_"):
+            topic_id = int(result_id.replace("topic_", ""))
+        else:
+            topic_id = int(result_id)
         
+        logger.info(f"🎯 CHOSEN_INLINE: Topic ID extracted: {topic_id}")
+        
+        # دریافت اطلاعات مبحث
+        topic_info = get_topic_by_id(topic_id)
+        if not topic_info:
+            logger.error(f"❌ CHOSEN_INLINE: Topic not found for ID: {topic_id}")
+            await context.bot.send_message(
+                chat_id=ADMIN_ID,
+                text="❌ اطلاعات مبحث یافت نشد!"
+            )
+            return
+        
+        topic_name = topic_info[0][1]
+        
+        # به‌روزرسانی مستقیم context.user_data
+        context.user_data['question_bank_data'] = {
+            'topic_id': topic_id,
+            'step': 'waiting_for_photo',
+            'topic_name': topic_name
+        }
+        context.user_data['admin_action'] = 'adding_question_to_bank'
+        
+        logger.info(f"✅ CHOSEN_INLINE: Context updated successfully")
+        logger.info(f"📝 CHOSEN_INLINE: question_bank_data = {context.user_data.get('question_bank_data')}")
+        
+        # ارسال پیام تأیید به ادمین
+        await context.bot.send_message(
+            chat_id=ADMIN_ID,
+            text=(
+                f"✅ مبحث انتخاب شد: **{topic_name}**\n\n"
+                f"**مرحله ۲/۳: ارسال عکس سوال**\n\n"
+                f"📸 لطفاً عکس سوال را ارسال کنید:"
+            ),
+            parse_mode=ParseMode.MARKDOWN
+        )
+        
+        logger.info("✅ CHOSEN_INLINE: Admin moved to photo stage successfully")
+        
+    except ValueError as e:
+        logger.error(f"❌ CHOSEN_INLINE: Invalid result_id '{result_id}': {e}")
+        try:
+            await context.bot.send_message(
+                chat_id=ADMIN_ID,
+                text=f"❌ خطا: شناسه مبحث نامعتبر ('{result_id}')"
+            )
+        except:
+            pass
     except Exception as e:
-        logger.error(f"❌ CHOSEN_INLINE_RESULT error: {e}")
+        logger.error(f"❌ CHOSEN_INLINE: Unexpected error: {e}")
+        try:
+            await context.bot.send_message(
+                chat_id=ADMIN_ID,
+                text="❌ خطای غیرمنتظره در پردازش انتخاب مبحث! لطفاً دوباره تلاش کنید."
+            )
+        except:
+            pass
 
 
 
