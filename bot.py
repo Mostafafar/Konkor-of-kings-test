@@ -935,7 +935,7 @@ async def debug_context(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode=ParseMode.MARKDOWN
     )
 
-async def custom_quiz_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
 async def custom_quiz_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """تنظیمات آزمون سفارشی"""
     if 'custom_quiz' not in context.user_data:
