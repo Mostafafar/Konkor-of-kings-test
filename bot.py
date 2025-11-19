@@ -588,67 +588,7 @@ async def start_custom_quiz_creation(update: Update, context: ContextTypes.DEFAU
         reply_markup=reply_markup
     )
 
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """مدیریت پیام‌های متنی"""
-    if update.message.contact:
-        await handle_contact(update, context)
-    elif update.message.text or update.message.photo:
-        # بررسی اگر ادمین در حال ارسال پیام همگانی است
-        if (update.effective_user.id == ADMIN_ID and 
-            'admin_action' in context.user_data and 
-            context.user_data['admin_action'] == 'broadcasting'):
-            await handle_broadcast(update, context)
-        
-        # بررسی اگر ادمین در حال افزودن سوال به بانک است و متن مربوط به انتخاب مبحث است
-        elif (update.effective_user.id == ADMIN_ID and 
-              'admin_action' in context.user_data and 
-              context.user_data['admin_action'] == 'adding_question_to_bank' and
-              update.message.text and 
-              update.message.text.startswith('مبحث انتخاب شده:')):
-            
-            await handle_topic_selection_from_message(update, context)
-            
-        elif update.effective_user.id == ADMIN_ID:
-            # بررسی اگر ادمین در حال افزودن مبحث است
-            if 'admin_action' in context.user_data and context.user_data['admin_action'] == 'adding_topic':
-                text = update.message.text
-                topic_data = context.user_data.get('topic_data', {})
-                
-                if topic_data.get('step') == 'name':
-                    topic_data['name'] = text
-                    topic_data['step'] = 'description'
-                    context.user_data['topic_data'] = topic_data
-                    
-                    await update.message.reply_text(
-                        "✅ نام مبحث ذخیره شد.\n\n"
-                        "لطفاً توضیحات مبحث را ارسال کنید (اختیاری):\n\n"
-                        "💡 می‌توانید 'ندارد' را ارسال کنید تا از توضیحات صرف نظر کنید."
-                    )
-                elif topic_data.get('step') == 'description':
-                    description = text if text != 'ندارد' else ""
-                    
-                    # ذخیره مبحث در دیتابیس
-                    result = add_topic(topic_data['name'], description)
-                    
-                    if result:
-                        await update.message.reply_text(
-                            f"✅ مبحث '{topic_data['name']}' با موفقیت اضافه شد!"
-                        )
-                    else:
-                        await update.message.reply_text(
-                            "❌ خطا در افزودن مبحث! ممکن است مبحثی با این نام از قبل وجود داشته باشد."
-                        )
-                    
-                    # پاک کردن داده‌های موقت
-                    if 'topic_data' in context.user_data:
-                        del context.user_data['topic_data']
-                    if 'admin_action' in context.user_data:
-                        del context.user_data['admin_action']
-                return
-            
-            await handle_admin_text(update, context)
-        else:
-            await update.message.reply_text("لطفاً از منوی ربات استفاده کنید.")
+
 
 async def handle_topic_selection_from_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """پردازش انتخاب مبحث از طریق پیام"""
