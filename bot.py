@@ -630,56 +630,120 @@ async def continue_question_bank_flow(update: Update, context: ContextTypes.DEFA
     logger.info(f"Continued question bank flow for topic: {topic_name}")
     return True
 
+# (Only the modified/added parts are shown here — in your repo replace the existing functions below with these updated versions.)
+
+# ... (other imports remain unchanged)
+
+# ---------------------------
+# Modifications: chosen inline result handling and extra logging/fallbacks
+# ---------------------------
+
 async def chosen_inline_result_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    result_id = update.chosen_inline_result.result_id
-    user_id = update.chosen_inline_result.from_user.id
+    """
+    Handle when an inline result is chosen.
 
-    logger.info(f"🎯 CHOSEN_INLINE: User: {user_id}, Result ID: '{result_id}'")
-
-    if user_id != ADMIN_ID:
-        return
-
-    # بررسی وضعیت ادمین
-    is_adding_question = (
-        'admin_action' in context.user_data and 
-        context.user_data['admin_action'] == 'adding_question_to_bank'
-    )
-
-    if not is_adding_question:
-        logger.info("🎯 CHOSEN_INLINE: Admin not in adding_question_to_bank state")
-        return
-
-    # پردازش result_id (با یا بدون topic_)
+    Notes:
+    - Telegram sends both: the inserted Message in the chat, and a ChosenInlineResult update to the bot.
+    - The selected inline message (text) will also arrive as a normal Message update; we keep that behavior.
+    - The previous implementation forwarded handling to handle_admin_question_bank_flow(update, context, topic_id)
+      which expected an Update object; sometimes the flow can be fragile depending where the inline query
+      was invoked. To make behavior robust we:
+        - parse the topic id from chosen_inline_result.result_id
+        - set context.user_data state directly (user-scoped)
+        - send the follow-up message to the admin (explicit chat_id)
+        - log extensively
+    """
     try:
-        if result_id.startswith("topic_"):
-            topic_id = int(result_id.replace("topic_", ""))
-        else:
-            topic_id = int(result_id)  # اگر بدون پیشوند باشد
+        # Defensive check
+        if not getattr(update, "chosen_inline_result", None):
+            logger.info("chosen_inline_result_handler called but no chosen_inline_result present.")
+            return
 
-        logger.info(f"🎯 CHOSEN_INLINE: Admin selected topic ID: {topic_id}")
-        success = await handle_admin_question_bank_flow(update, context, str(topic_id))
-        
-        if not success:
-            await context.bot.send_message(
-                chat_id=user_id,
-                text="❌ خطا در پردازش انتخاب مبحث! لطفاً دوباره تلاش کنید."
-            )
-        return
+        result_id = update.chosen_inline_result.result_id
+        user_id = update.chosen_inline_result.from_user.id
 
-    except ValueError as e:
-        logger.error(f"❌ CHOSEN_INLINE: Invalid topic ID: {result_id}, error: {e}")
+        logger.info(f"🎯 CHOSEN_INLINE: User: {user_id}, Result ID: '{result_id}'")
+
+        # Only allow admin to use this flow
+        if user_id != ADMIN_ID:
+            logger.info("🎯 CHOSEN_INLINE: Ignored chosen inline result from non-admin user.")
+            return
+
+        # Ensure admin is currently in the adding_question_to_bank state
+        is_adding_question = (
+            'admin_action' in context.user_data and
+            context.user_data['admin_action'] == 'adding_question_to_bank'
+        )
+
+        if not is_adding_question:
+            logger.info("🎯 CHOSEN_INLINE: Admin not in adding_question_to_bank state")
+            # We don't error out — just ignore (but log). If you want to notify admin, uncomment below:
+            # await context.bot.send_message(chat_id=user_id, text="❌ شما در حال حاضر در حالت افزودن سوال به بانک نیستید.")
+            return
+
+        # Parse topic id robustly
+        try:
+            if result_id.startswith("topic_"):
+                topic_id = int(result_id.split("_", 1)[1])
+            else:
+                topic_id = int(result_id)
+            logger.info(f"🎯 CHOSEN_INLINE: Admin selected topic ID: {topic_id}")
+        except ValueError as e:
+            logger.error(f"❌ CHOSEN_INLINE: Invalid topic id in result_id '{result_id}': {e}")
+            await context.bot.send_message(chat_id=user_id, text=f"❌ خطا: شناسه مبحث نامعتبر ('{result_id}').")
+            return
+
+        # Set user_data state (user-scoped) so other handlers see the new step
+        context.user_data['question_bank_data'] = {
+            'topic_id': topic_id,
+            'step': 'waiting_for_photo'
+        }
+        context.user_data['admin_action'] = 'adding_question_to_bank'
+        logger.info(f"🎯 CHOSEN_INLINE: Set context.user_data for admin: {context.user_data.get('question_bank_data')}")
+
+        # Fetch topic info and notify admin
+        topic_info = get_topic_by_id(topic_id)
+        if not topic_info:
+            logger.error(f"❌ CHOSEN_INLINE: Topic not found for ID: {topic_id}")
+            await context.bot.send_message(chat_id=user_id, text="❌ اطلاعات مبحث یافت نشد!")
+            return
+
+        topic_name = topic_info[0][1]
         await context.bot.send_message(
             chat_id=user_id,
-            text=f"❌ خطا: شناسه مبحث نامعتبر است ('{result_id}')"
+            text=(
+                f"✅ مبحث انتخاب شد: {topic_name}\n\n"
+                f"**مرحله ۲/۳: ارسال عکس سوال**\n\n"
+                f"📸 لطفاً عکس سوال را ارسال کنید:"
+            ),
+            parse_mode=ParseMode.MARKDOWN
         )
-        return
+
+        logger.info("🎯 CHOSEN_INLINE: Admin moved to photo stage successfully")
+
     except Exception as e:
-        logger.error(f"❌ CHOSEN_INLINE: Unexpected error: {e}")
-        await context.bot.send_message(
-            chat_id=user_id,
-            text="❌ خطای غیرمنتظره در پردازش انتخاب مبحث! لطفاً دوباره تلاش کنید."
-        )
-        return
+        logger.exception(f"❌ CHOSEN_INLINE: Unexpected error handling chosen inline result: {e}")
+        try:
+            user_id = update.chosen_inline_result.from_user.id if getattr(update, "chosen_inline_result", None) else None
+            if user_id:
+                await context.bot.send_message(chat_id=user_id, text="❌ خطای داخلی رخ داد. لطفاً دوباره تلاش کنید.")
+        except Exception:
+            pass
+
+# Note:
+# We keep the existing handle_admin_question_bank_flow() (which is used by other parts of the code),
+# but the chosen_inline_result now directly sets the same state and sends the admin message. This simplifies
+# the flow and avoids relying on update.effective_user inside the helper when handling the ChosenInlineResult case.
+
+# ---------------------------
+# Additional small improvement suggestions (no code change required, but recommended)
+# ---------------------------
+# 1) Add debug logs to handle_admin_photos and handle_admin_text to show current context.user_data at entry.
+# 2) For easier debugging, consider adding an admin-only /state command that dumps context.user_data (you already have debug_context).
+# 3) If the inline result is sometimes chosen in a different chat than where admin initiated the add-question flow,
+#    remember that context.user_data is per user (so it's fine), but context.chat_data is per chat. Use user_data for admin flows.
+# ---------------------------
+
 async def debug_context(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """تابع دیباگ برای بررسی وضعیت context"""
     user_id = update.effective_user.id
