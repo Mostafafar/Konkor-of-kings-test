@@ -1411,7 +1411,8 @@ async def handle_admin_photos(update: Update, context: ContextTypes.DEFAULT_TYPE
             question_data['step'] = 'waiting_for_answer'
             context.user_data['question_bank_data'] = question_data
             
-            logger.info(f"Question image saved: {image_path}")
+            logger.info(f"✅ Question image saved: {image_path}")
+            logger.info(f"📝 Question data updated: {question_data}")
             
             await update.message.reply_text(
                 "✅ عکس سوال ذخیره شد.\n\n"
@@ -1421,13 +1422,12 @@ async def handle_admin_photos(update: Update, context: ContextTypes.DEFAULT_TYPE
             )
             
         except Exception as e:
-            logger.error(f"Error saving question image: {e}")
+            logger.error(f"❌ Error saving question image: {e}")
             await update.message.reply_text("❌ خطا در ذخیره عکس! لطفاً دوباره تلاش کنید.")
         
         return
     
     # بقیه کدهای مربوط به حالت‌های دیگر...
-    # بقیه کد بدون تغییر...
     
     # حالت عادی برای ایجاد آزمون
     if 'admin_action' not in context.user_data or context.user_data['admin_action'] != 'adding_questions':
