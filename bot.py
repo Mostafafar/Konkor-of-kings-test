@@ -1852,67 +1852,70 @@ async def inline_query_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     
     logger.info(f"🔍 INLINE_QUERY: Returning {len(results)} results")
     await update.inline_query.answer(results, cache_time=1)
+
+
+
 async def handle_admin_question_bank_flow(update: Update, context: ContextTypes.DEFAULT_TYPE, result_id: str):
     """مدیریت جریان افزودن سوال به بانک برای ادمین"""
-    logger.info(f"🔄 ADMIN_FLOW: Starting handle_admin_question_bank_flow with result_id: '{result_id}'")
+    logger.info(f"🔄 ADMIN_FLOW: Starting with result_id: '{result_id}'")
     
     try:
         # استخراج topic_id از result_id
         if result_id.startswith("topic_"):
             topic_id = int(result_id.replace("topic_", ""))
-            logger.info(f"🔄 ADMIN_FLOW: Extracted topic_id from topic_ prefix: {topic_id}")
         else:
             topic_id = int(result_id)
-            logger.info(f"🔄 ADMIN_FLOW: Using result_id as topic_id: {topic_id}")
+        
+        logger.info(f"🔄 ADMIN_FLOW: Topic ID extracted: {topic_id}")
         
         # تنظیم داده‌های مورد نیاز
         context.user_data['question_bank_data'] = {
             'topic_id': topic_id,
             'step': 'waiting_for_photo'
         }
+        # اطمینان از اینکه admin_action همچنان تنظیم است
         context.user_data['admin_action'] = 'adding_question_to_bank'
         
-        logger.info(f"🔄 ADMIN_FLOW: Updated context - question_bank_data: {context.user_data.get('question_bank_data')}")
-        logger.info(f"🔄 ADMIN_FLOW: Updated context - admin_action: {context.user_data.get('admin_action')}")
+        logger.info(f"🔄 ADMIN_FLOW: Context updated - question_bank_data: {context.user_data.get('question_bank_data')}")
         
         # دریافت اطلاعات مبحث
         topic_info = get_topic_by_id(topic_id)
         if not topic_info:
             logger.error(f"❌ ADMIN_FLOW: Topic not found for ID: {topic_id}")
             await context.bot.send_message(
-                chat_id=update.effective_user.id,
+                chat_id=ADMIN_ID,
                 text="❌ اطلاعات مبحث یافت نشد!"
             )
-            return False
+            return
         
         topic_name = topic_info[0][1]
         logger.info(f"🔄 ADMIN_FLOW: Found topic: {topic_name}")
         
+        # ارسال پیام به ادمین
         await context.bot.send_message(
-            chat_id=update.effective_user.id,
-            text=f"✅ مبحث انتخاب شد: {topic_name}\n\n"
-                 f"**مرحله ۲/۳: ارسال عکس سوال**\n\n"
-                 f"📸 لطفاً عکس سوال را ارسال کنید:",
+            chat_id=ADMIN_ID,
+            text=(
+                f"✅ مبحث انتخاب شد: {topic_name}\n\n"
+                f"**مرحله ۲/۳: ارسال عکس سوال**\n\n"
+                f"📸 لطفاً عکس سوال را ارسال کنید:"
+            ),
             parse_mode=ParseMode.MARKDOWN
         )
         
         logger.info("🔄 ADMIN_FLOW: Successfully moved to photo stage")
-        return True
         
     except ValueError as e:
-        logger.error(f"❌ ADMIN_FLOW: ValueError - result_id: '{result_id}', error: {e}")
+        logger.error(f"❌ ADMIN_FLOW: Invalid result_id '{result_id}': {e}")
         await context.bot.send_message(
-            chat_id=update.effective_user.id,
-            text=f"❌ خطا: شناسه مبحث نامعتبر است ('{result_id}')"
+            chat_id=ADMIN_ID,
+            text=f"❌ خطا: شناسه مبحث نامعتبر ('{result_id}')"
         )
-        return False
     except Exception as e:
         logger.error(f"❌ ADMIN_FLOW: Unexpected error: {e}")
         await context.bot.send_message(
-            chat_id=update.effective_user.id,
+            chat_id=ADMIN_ID,
             text="❌ خطای غیرمنتظره در پردازش انتخاب مبحث! لطفاً دوباره تلاش کنید."
         )
-        return False
 async def admin_manage_topics(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """مدیریت مباحث"""
     if update.effective_user.id != ADMIN_ID:
