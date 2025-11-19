@@ -927,65 +927,118 @@ async def debug_context(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def custom_quiz_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data['custom_quiz']['step'] = 'settings'
+async def custom_quiz_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """تنظیمات آزمون سفارشی"""
+    if 'custom_quiz' not in context.user_data:
+        context.user_data['custom_quiz'] = {
+            'selected_topics': [],
+            'settings': {
+                'count': 20,
+                'time_limit': 30,
+                'difficulty': 'all'
+            }
+        }
     
+    context.user_data['custom_quiz']['step'] = 'settings'
     settings = context.user_data['custom_quiz']['settings']
+    
+    # محاسبه حداکثر سوالات قابل دسترس
+    total_available = 0
+    if context.user_data['custom_quiz']['selected_topics']:
+        total_available = sum([get_questions_count_by_topic(tid)[0][0] for tid in context.user_data['custom_quiz']['selected_topics']])
+    
     count = settings.get('count', 20)
     time_limit = settings.get('time_limit', 30)
     difficulty = settings.get('difficulty', 'all')
     
+    # نمایش نام مباحث انتخاب شده
+    topics_text = ""
+    if context.user_data['custom_quiz']['selected_topics']:
+        topics_list = [f"• {get_topic_name(tid)}" for tid in context.user_data['custom_quiz']['selected_topics']]
+        topics_text = "\n".join(topics_list) + "\n\n"
+    
     keyboard = [
-        [InlineKeyboardButton(f"📊 تعداد سوالات: {count}", callback_data="set_count_20")],
-        [InlineKeyboardButton(f"⏱ زمان: {time_limit} دقیقه", callback_data="set_time_30")],
-        [InlineKeyboardButton(f"🎯 سطح: {difficulty}", callback_data="set_difficulty_all")],
+        [InlineKeyboardButton(f"📊 تعداد سوالات: {count}", callback_data="set_count_menu")],
+        [InlineKeyboardButton(f"⏱ زمان: {time_limit} دقیقه", callback_data="set_time_menu")],
+        [InlineKeyboardButton(f"🎯 سطح: {difficulty}", callback_data="set_difficulty_menu")],
+        [InlineKeyboardButton("➕ افزودن مبحث دیگر", switch_inline_query_current_chat="مبحث ")],
         [InlineKeyboardButton("🚀 شروع آزمون", callback_data="generate_custom_quiz")],
         [InlineKeyboardButton("🔙 بازگشت", callback_data="create_custom_quiz")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
-    await update.callback_query.edit_message_text(
-        "🎯 ساخت آزمون سفارشی\n\n"
-        "مرحله ۲/۴: تنظیمات آزمون\n\n"
-        "لطفاً تنظیمات مورد نظر را انتخاب کنید:",
-        reply_markup=reply_markup
+    message_text = (
+        f"🎯 تنظیمات آزمون سفارشی\n\n"
+        f"📚 مباحث انتخاب شده:\n{topics_text}"
+        f"📊 سوالات قابل دسترس: {total_available}\n\n"
+        f"⚙️ تنظیمات فعلی:\n"
+        f"• تعداد سوالات: {count}\n"
+        f"• زمان: {time_limit} دقیقه\n"
+        f"• سطح: {difficulty}\n\n"
+        f"لطفاً تنظیمات مورد نظر را انتخاب کنید:"
     )
+    
+    await update.callback_query.edit_message_text(message_text, reply_markup=reply_markup)
 
 async def generate_custom_quiz(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    quiz_data = context.user_data['custom_quiz']
-    
-    # تولید آزمون از بانک سوالات
-    questions = get_questions_by_topics(
-        quiz_data['selected_topics'],
-        quiz_data['settings'].get('difficulty', 'all'),
-        quiz_data['settings'].get('count', 20)
-    )
-    
-    if not questions:
-        await update.callback_query.edit_message_text(
-            "❌ هیچ سوالی برای مباحث انتخاب شده یافت نشد!",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="create_custom_quiz")]])
+    """ایجاد و شروع آزمون سفارشی"""
+    try:
+        user_id = update.effective_user.id
+        
+        if 'custom_quiz' not in context.user_data or not context.user_data['custom_quiz']['selected_topics']:
+            await update.callback_query.edit_message_text(
+                "❌ لطفاً حداقل یک مبحث انتخاب کنید!",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="create_custom_quiz")]])
+            )
+            return
+        
+        quiz_data = context.user_data['custom_quiz']
+        
+        # دریافت سوالات از بانک
+        questions = get_questions_by_topics(
+            quiz_data['selected_topics'],
+            quiz_data['settings'].get('difficulty', 'all'),
+            quiz_data['settings'].get('count', 20)
         )
-        return
-    
-    # ایجاد آزمون موقت
-    quiz_title = f"آزمون سفارشی - {datetime.now().strftime('%Y%m%d_%H%M')}"
-    quiz_id = create_quiz(quiz_title, "آزمون سفارشی کاربر", 30, False)
-    
-    if not quiz_id:
+        
+        if not questions:
+            await update.callback_query.edit_message_text(
+                "❌ هیچ سوالی برای مباحث انتخاب شده یافت نشد!",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="create_custom_quiz")]])
+            )
+            return
+        
+        # ایجاد آزمون موقت
+        topics_names = [get_topic_name(tid) for tid in quiz_data['selected_topics']]
+        quiz_title = f"آزمون سفارشی - {', '.join(topics_names)[:50]}..."
+        quiz_description = f"آزمون سفارشی شامل {len(questions)} سوال از {len(topics_names)} مبحث"
+        
+        quiz_id = create_quiz(quiz_title, quiz_description, quiz_data['settings'].get('time_limit', 30), False)
+        
+        if not quiz_id:
+            await update.callback_query.edit_message_text(
+                "❌ خطا در ایجاد آزمون!",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="main_menu")]])
+            )
+            return
+        
+        # افزودن سوالات به آزمون
+        for i, question in enumerate(questions):
+            add_question(quiz_id, question[1], question[2], i)
+        
+        # پاک کردن داده‌های موقت
+        if 'custom_quiz' in context.user_data:
+            del context.user_data['custom_quiz']
+        
+        # شروع آزمون
+        await start_quiz(update, context, quiz_id)
+        
+    except Exception as e:
+        logger.error(f"Error generating custom quiz: {e}")
         await update.callback_query.edit_message_text(
-            "❌ خطا در ایجاد آزمون!",
+            "❌ خطا در ایجاد آزمون! لطفاً دوباره تلاش کنید.",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="main_menu")]])
-        )
-        return
-    
-    # افزودن سوالات به آزمون
-    for i, question in enumerate(questions):
-        add_question(quiz_id, question[1], question[2], i)
-    
-    # شروع آزمون
-    await start_quiz(update, context, quiz_id)
-
+    )
 # توابع آزمون
 async def start_quiz(update: Update, context: ContextTypes.DEFAULT_TYPE, quiz_id: int):
     user_id = update.effective_user.id
