@@ -1431,7 +1431,7 @@ async def handle_contact(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await show_main_menu(update, context)
 
 
-async def handle_admin_photos(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
 async def handle_admin_photos(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """پردازش عکس‌های ارسالی ادمین"""
     if update.effective_user.id != ADMIN_ID:
