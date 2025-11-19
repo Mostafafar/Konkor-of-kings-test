@@ -1432,19 +1432,23 @@ async def handle_contact(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def handle_admin_photos(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_admin_photos(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """پردازش عکس‌های ارسالی ادمین"""
     if update.effective_user.id != ADMIN_ID:
         return
     
+    logger.info(f"📸 ADMIN_PHOTO: Received photo, context: {context.user_data}")
+    
     # حالت افزودن سوال به بانک
-    if ('admin_action' in context.user_data and 
-        context.user_data['admin_action'] == 'adding_question_to_bank' and
+    if (context.user_data.get('admin_action') == 'adding_question_to_bank' and
         'question_bank_data' in context.user_data):
         
         question_data = context.user_data['question_bank_data']
+        logger.info(f"📸 ADMIN_PHOTO: Question bank data: {question_data}")
         
         # بررسی اینکه آیا مبحث انتخاب شده است
         if 'topic_id' not in question_data:
+            logger.error("❌ ADMIN_PHOTO: No topic_id in question_data")
             await update.message.reply_text(
                 "❌ ابتدا باید مبحث را انتخاب کنید!\n\n"
                 "لطفاً از منوی ادمین دوباره گزینه 'افزودن سوال به بانک' را انتخاب کنید."
@@ -1453,8 +1457,9 @@ async def handle_admin_photos(update: Update, context: ContextTypes.DEFAULT_TYPE
         
         # بررسی اینکه در مرحله دریافت عکس هستیم
         if question_data.get('step') != 'waiting_for_photo':
+            logger.error(f"❌ ADMIN_PHOTO: Wrong step. Expected 'waiting_for_photo', got '{question_data.get('step')}'")
             await update.message.reply_text(
-                "❌ در این مرحله نمی‌توانید عکس ارسال کنید!"
+                "❌ در این مرحله نمی‌توانید عکس ارسال کنید! لطفاً فرآیند را از ابتدا شروع کنید."
             )
             return
         
@@ -1471,8 +1476,8 @@ async def handle_admin_photos(update: Update, context: ContextTypes.DEFAULT_TYPE
             question_data['step'] = 'waiting_for_answer'
             context.user_data['question_bank_data'] = question_data
             
-            logger.info(f"✅ Question image saved: {image_path}")
-            logger.info(f"📝 Question data updated: {question_data}")
+            logger.info(f"✅ ADMIN_PHOTO: Question image saved: {image_path}")
+            logger.info(f"✅ ADMIN_PHOTO: Moved to step: waiting_for_answer")
             
             await update.message.reply_text(
                 "✅ عکس سوال ذخیره شد.\n\n"
@@ -1482,10 +1487,13 @@ async def handle_admin_photos(update: Update, context: ContextTypes.DEFAULT_TYPE
             )
             
         except Exception as e:
-            logger.error(f"❌ Error saving question image: {e}")
+            logger.error(f"❌ ADMIN_PHOTO: Error saving question image: {e}")
             await update.message.reply_text("❌ خطا در ذخیره عکس! لطفاً دوباره تلاش کنید.")
         
         return
+    
+    # بقیه کدهای مربوط به حالت‌های دیگر...
+    logger.info("📸 ADMIN_PHOTO: Not in question bank flow, ignoring photo")
     
     # بقیه کدهای مربوط به حالت‌های دیگر...
     
@@ -1524,57 +1532,72 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     text = update.message.text
-    
-    if 'admin_action' not in context.user_data:
-        return
-    
-    action = context.user_data['admin_action']
+    logger.info(f"📝 ADMIN_TEXT: Received text: '{text}', context: {context.user_data}")
     
     # اگر در حال افزودن سوال به بانک است
-    if action == 'adding_question_to_bank':
+    if context.user_data.get('admin_action') == 'adding_question_to_bank':
         if 'question_bank_data' not in context.user_data:
+            logger.error("❌ ADMIN_TEXT: No question_bank_data in context")
             await update.message.reply_text("❌ خطا! ابتدا فرآیند را دوباره شروع کنید.")
             return
         
         question_data = context.user_data['question_bank_data']
+        logger.info(f"📝 ADMIN_TEXT: Question bank data: {question_data}")
         
-        if 'question_image' in question_data and 'topic_id' in question_data:
-            try:
-                correct_answer = int(text)
-                if correct_answer < 1 or correct_answer > 4:
-                    raise ValueError
+        # بررسی اینکه آیا عکس و مبحث انتخاب شده است
+        if 'question_image' not in question_data or 'topic_id' not in question_data:
+            logger.error("❌ ADMIN_TEXT: Missing question_image or topic_id")
+            await update.message.reply_text("❌ ابتدا مبحث و عکس سوال را انتخاب کنید.")
+            return
+        
+        # بررسی اینکه در مرحله دریافت پاسخ هستیم
+        if question_data.get('step') != 'waiting_for_answer':
+            logger.error(f"❌ ADMIN_TEXT: Wrong step. Expected 'waiting_for_answer', got '{question_data.get('step')}'")
+            await update.message.reply_text("❌ در این مرحله نمی‌توانید پاسخ ارسال کنید!")
+            return
+        
+        try:
+            correct_answer = int(text)
+            if correct_answer < 1 or correct_answer > 4:
+                raise ValueError("Answer out of range")
+            
+            # ذخیره سوال در بانک
+            result = add_question_to_bank(
+                question_data['topic_id'],
+                question_data['question_image'],
+                correct_answer
+            )
+            
+            if result:
+                topic_name = question_data.get('topic_name', 'نامشخص')
                 
-                # ذخیره سوال در بانک
-                result = add_question_to_bank(
-                    question_data['topic_id'],
-                    question_data['question_image'],
-                    correct_answer
+                success_message = (
+                    f"✅ سوال با موفقیت به بانک اضافه شد!\n\n"
+                    f"📚 مبحث: {topic_name}\n"
+                    f"📸 عکس: {os.path.basename(question_data['question_image'])}\n"
+                    f"✅ پاسخ صحیح: گزینه {correct_answer}"
                 )
                 
-                if result:
-                    topic_info = get_topic_by_id(question_data['topic_id'])
-                    topic_name = topic_info[0][1] if topic_info else "نامشخص"
-                    
-                    await update.message.reply_text(
-                        f"✅ سوال با موفقیت به بانک اضافه شد!\n\n"
-                        f"📚 مبحث: {topic_name}\n"
-                        f"📸 عکس: {os.path.basename(question_data['question_image'])}\n"
-                        f"✅ پاسخ صحیح: گزینه {correct_answer}"
-                    )
-                else:
-                    await update.message.reply_text("❌ خطا در ذخیره سوال!")
-                
-                # پاک کردن داده‌های موقت
-                if 'question_bank_data' in context.user_data:
-                    del context.user_data['question_bank_data']
-                if 'admin_action' in context.user_data:
-                    del context.user_data['admin_action']
-                
-            except ValueError:
-                await update.message.reply_text("❌ لطفاً عددی بین 1 تا 4 وارد کنید:")
-        else:
-            await update.message.reply_text("❌ ابتدا مبحث و عکس سوال را انتخاب کنید.")
+                await update.message.reply_text(success_message)
+                logger.info(f"✅ ADMIN_TEXT: Question added to bank successfully")
+            else:
+                await update.message.reply_text("❌ خطا در ذخیره سوال!")
+                logger.error("❌ ADMIN_TEXT: Failed to add question to bank")
+            
+            # پاک کردن داده‌های موقت
+            del context.user_data['question_bank_data']
+            del context.user_data['admin_action']
+            logger.info("✅ ADMIN_TEXT: Cleaned up context data")
+            
+        except ValueError:
+            await update.message.reply_text("❌ لطفاً عددی بین 1 تا 4 وارد کنید:")
+        except Exception as e:
+            logger.error(f"❌ ADMIN_TEXT: Error adding question: {e}")
+            await update.message.reply_text("❌ خطا در ذخیره سوال! لطفاً دوباره تلاش کنید.")
+        
         return
+    
+    # بقیه کدهای مربوط به حالت‌های دیگر...
     
     # حالت عادی برای ایجاد آزمون
     quiz_data = context.user_data.get('quiz_data', {})
