@@ -1792,14 +1792,8 @@ async def inline_query_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     results = []
     is_admin = user_id == ADMIN_ID
     
-    # بررسی اگر ادمین در حال افزودن سوال به بانک است
-    is_admin_adding_question = (is_admin and 
-                               'admin_action' in context.user_data and 
-                               context.user_data['admin_action'] == 'adding_question_to_bank')
-    
-    logger.info(f"🔍 INLINE_QUERY: is_admin_adding_question: {is_admin_adding_question}")
-    
-    # حالت عادی برای کاربران یا ادمین
+    # برای همه کاربران (ادمین و کاربران عادی) از یک فرمت استفاده می‌کنیم
+    # چون ChosenInlineResultHandler کار نمی‌کند
     topics = get_all_topics()
     logger.info(f"🔍 INLINE_QUERY: Found {len(topics)} topics")
     
@@ -1809,13 +1803,9 @@ async def inline_query_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         # فیلتر کردن بر اساس جستجوی کاربر
         if not query or query in name.lower() or (description and query in description.lower()):
             
-            # اگر ادمین در حال افزودن سوال است، از پیشوند topic_ استفاده کنید
-            if is_admin_adding_question:
-                result_id = f"topic_{topic_id}"
-                logger.info(f"🔍 INLINE_QUERY: Creating admin result - ID: {result_id}, Name: {name}")
-            else:
-                result_id = str(topic_id)
-                logger.info(f"🔍 INLINE_QUERY: Creating user result - ID: {result_id}, Name: {name}")
+            # برای همه کاربران از یک فرمت استفاده می‌کنیم
+            result_id = str(topic_id)
+            logger.info(f"🔍 INLINE_QUERY: Creating result - ID: {result_id}, Name: {name}")
             
             results.append(InlineQueryResultArticle(
                 id=result_id,
@@ -1828,7 +1818,6 @@ async def inline_query_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     
     logger.info(f"🔍 INLINE_QUERY: Returning {len(results)} results")
     await update.inline_query.answer(results, cache_time=1)
-
 
 
 async def handle_admin_question_bank_flow(update: Update, context: ContextTypes.DEFAULT_TYPE, result_id: str):
