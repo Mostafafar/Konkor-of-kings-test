@@ -499,6 +499,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     data = query.data
     
+    
     # هندلرهای جدید برای تنظیمات اولیه
     if data == "ask_question_count":
         await ask_for_question_count(update, context)
@@ -614,6 +615,27 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await show_quiz_list(update, context)
     elif data == "back_to_custom_quiz":
         await start_custom_quiz_creation(update, context)
+    # اضافه کردن این هندلرها در تابع handle_callback
+    elif data == "admin_ask_title":
+        await admin_ask_for_title(update, context)
+    elif data == "admin_ask_description":
+        await admin_ask_for_description(update, context)
+    elif data == "admin_ask_question_count":
+        await admin_ask_for_question_count(update, context)
+    elif data == "admin_ask_time_limit":
+        await admin_ask_for_time_limit(update, context)
+    elif data == "admin_set_difficulty":
+        await admin_set_difficulty(update, context)
+    elif data.startswith("admin_set_difficulty_"):
+        difficulty = data.split("_")[3]
+        context.user_data['admin_quiz']['settings']['difficulty'] = difficulty
+        await admin_back_to_settings(update, context)
+    elif data == "admin_add_more_topics":
+        await admin_add_more_topics(update, context)
+    elif data == "admin_back_to_settings":
+        await admin_back_to_settings(update, context)
+    elif data == "admin_generate_quiz":
+        await admin_generate_quiz(update, context)
 
 # ساخت آزمون سفارشی
 async def start_custom_quiz_creation(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1032,7 +1054,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await handle_contact(update, context)
         return
     
-    # بررسی آزمون سفارشی - انتخاب مبحث اول
+    # 🔄 بخش ۱: پردازش آزمون سفارشی کاربر
     if (update.message.text and 
         update.message.text.startswith('مبحث انتخاب شده:') and
         'custom_quiz' in context.user_data):
@@ -1046,7 +1068,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await handle_additional_topic_selection(update, context)
             return
     
-    # پردازش تعداد سوالات
+    # پردازش تعداد سوالات آزمون سفارشی
     if (update.message.text and 
         'custom_quiz' in context.user_data and
         context.user_data['custom_quiz']['step'] == 'waiting_for_count'):
@@ -1054,7 +1076,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await process_question_count_input(update, context)
         return
     
-    # پردازش زمان آزمون
+    # پردازش زمان آزمون سفارشی
     if (update.message.text and 
         'custom_quiz' in context.user_data and
         context.user_data['custom_quiz']['step'] == 'waiting_for_time'):
@@ -1062,7 +1084,58 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await process_time_limit_input(update, context)
         return
     
-    # بقیه کدهای handle_message...
+    # 🔄 بخش ۲: پردازش آزمون ادمین به سبک سفارشی
+    if (update.effective_user.id == ADMIN_ID and 
+        update.message.text and 
+        update.message.text.startswith('مبحث انتخاب شده:') and
+        'admin_quiz' in context.user_data):
+        
+        quiz_data = context.user_data['admin_quiz']
+        
+        if quiz_data['step'] == 'select_first_topic':
+            await admin_handle_first_topic_selection_from_message(update, context)
+            return
+        elif quiz_data['step'] == 'adding_more_topics':
+            await admin_handle_additional_topic_selection(update, context)
+            return
+    
+    # پردازش عنوان آزمون ادمین
+    if (update.effective_user.id == ADMIN_ID and 
+        update.message.text and
+        'admin_quiz' in context.user_data and
+        context.user_data['admin_quiz']['step'] == 'waiting_for_title'):
+        
+        await process_admin_title_input(update, context)
+        return
+    
+    # پردازش توضیحات آزمون ادمین
+    if (update.effective_user.id == ADMIN_ID and 
+        update.message.text and
+        'admin_quiz' in context.user_data and
+        context.user_data['admin_quiz']['step'] == 'waiting_for_description'):
+        
+        await process_admin_description_input(update, context)
+        return
+    
+    # پردازش تعداد سوالات آزمون ادمین
+    if (update.effective_user.id == ADMIN_ID and 
+        update.message.text and
+        'admin_quiz' in context.user_data and
+        context.user_data['admin_quiz']['step'] == 'waiting_for_count'):
+        
+        await process_admin_question_count_input(update, context)
+        return
+    
+    # پردازش زمان آزمون ادمین
+    if (update.effective_user.id == ADMIN_ID and 
+        update.message.text and
+        'admin_quiz' in context.user_data and
+        context.user_data['admin_quiz']['step'] == 'waiting_for_time'):
+        
+        await process_admin_time_limit_input(update, context)
+        return
+    
+    # 🔄 بخش ۳: پردازش سایر عملیات ادمین (قدیمی)
     
     # بررسی اول: اگر ادمین در حال افزودن سوال به بانک است و متن انتخاب مبحث است
     if (update.effective_user.id == ADMIN_ID and 
@@ -1127,12 +1200,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await handle_admin_photos(update, context)
         return
     
-    # بررسی پنجم: اگر ادمین است و متن ارسال کرده
+    # بررسی پنجم: اگر ادمین است و متن ارسال کرده (عملیات قدیمی)
     if update.effective_user.id == ADMIN_ID and update.message.text:
         await handle_admin_text(update, context)
         return
     
-    # برای کاربران عادی
+    # 🔄 بخش ۴: برای کاربران عادی
     if update.message.text:
         await update.message.reply_text("لطفاً از منوی ربات استفاده کنید.")
 
@@ -1699,23 +1772,390 @@ async def show_quiz_rankings(update: Update, context: ContextTypes.DEFAULT_TYPE,
 
 # توابع مدیریت ادمین
 async def admin_create_quiz(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """شروع فرآیند ایجاد آزمون جدید"""
+    """شروع فرآیند ایجاد آزمون جدید به سبک سفارشی"""
     if update.effective_user.id != ADMIN_ID:
         return
     
-    context.user_data['admin_action'] = 'creating_quiz'
-    context.user_data['quiz_data'] = {
-        'questions': [],
-        'current_step': 'title'
+    context.user_data['admin_quiz'] = {
+        'step': 'select_first_topic',
+        'selected_topics': [],
+        'settings': {
+            'title': '',
+            'description': '',
+            'count': 20,
+            'time_limit': 30,
+            'difficulty': 'all'
+        },
+        'quiz_type': 'admin'
     }
     
-    keyboard = [[InlineKeyboardButton("🔙 بازگشت به پنل ادمین", callback_data="admin_panel")]]
+    keyboard = [
+        [InlineKeyboardButton("🔍 انتخاب مبحث اول", switch_inline_query_current_chat="")],
+        [InlineKeyboardButton("🔙 بازگشت به پنل ادمین", callback_data="admin_panel")]
+    ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     await update.callback_query.edit_message_text(
-        "📝 ایجاد آزمون جدید:\n\nلطفاً عنوان آزمون را ارسال کنید:",
+        "🎯 ایجاد آزمون جدید (ادمین)\n\n"
+        "مرحله ۱/۵: انتخاب مبحث اول\n\n"
+        "روی دکمه زیر کلیک کنید و مبحث اول را انتخاب کنید:",
         reply_markup=reply_markup
     )
+async def admin_handle_first_topic_selection(update: Update, context: ContextTypes.DEFAULT_TYPE, topic_id: int):
+    """مدیریت انتخاب مبحث اول برای آزمون ادمین"""
+    try:
+        # دریافت اطلاعات مبحث
+        topic_info = get_topic_by_id(topic_id)
+        if not topic_info:
+            await update.message.reply_text("❌ مبحث یافت نشد!")
+            return
+        
+        topic_id, name, description = topic_info[0]
+        
+        # بررسی تعداد سوالات موجود
+        questions_count = get_questions_count_by_topic(topic_id)
+        available_questions = questions_count[0][0] if questions_count else 0
+        
+        if available_questions == 0:
+            await update.message.reply_text(f"❌ هیچ سوالی برای مبحث '{name}' در بانک وجود ندارد!")
+            return
+        
+        # افزودن مبحث به لیست
+        context.user_data['admin_quiz']['selected_topics'].append(topic_id)
+        context.user_data['admin_quiz']['step'] = 'waiting_for_title'
+        context.user_data['admin_quiz']['first_topic_name'] = name
+        
+        # درخواست عنوان آزمون
+        keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data="admin_back_to_settings")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await update.message.reply_text(
+            f"✅ مبحث اول انتخاب شد: **{name}**\n\n"
+            f"📊 سوالات قابل دسترس: {available_questions}\n\n"
+            f"**مرحله ۲/۵: تعیین عنوان آزمون**\n\n"
+            f"لطفاً عنوان آزمون را وارد کنید:",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=reply_markup
+        )
+        
+    except Exception as e:
+        logger.error(f"Error in admin first topic selection: {e}")
+        await update.message.reply_text("❌ خطا در پردازش انتخاب مبحث!")
+
+async def admin_show_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """نمایش تنظیمات آزمون ادمین"""
+    quiz_data = context.user_data['admin_quiz']
+    settings = quiz_data['settings']
+    
+    # محاسبه کل سوالات قابل دسترس
+    total_available = sum([get_questions_count_by_topic(tid)[0][0] for tid in quiz_data['selected_topics']])
+    
+    # نمایش نام مباحث انتخاب شده
+    topics_text = "\n".join([f"• {get_topic_name(tid)}" for tid in quiz_data['selected_topics']])
+    
+    # متن نمایشی برای سطح سختی
+    difficulty_texts = {
+        'all': '🎯 همه سطوح',
+        'easy': '🟢 آسان',
+        'medium': '🟡 متوسط', 
+        'hard': '🔴 سخت'
+    }
+    difficulty_text = difficulty_texts.get(settings['difficulty'], '🎯 همه سطوح')
+    
+    keyboard = [
+        [InlineKeyboardButton(f"📝 عنوان: {settings['title'] or 'تعیین نشده'}", callback_data="admin_ask_title")],
+        [InlineKeyboardButton(f"📋 توضیحات: {settings['description'] or 'تعیین نشده'}", callback_data="admin_ask_description")],
+        [InlineKeyboardButton(f"📊 تعداد سوالات: {settings['count']}", callback_data="admin_ask_question_count")],
+        [InlineKeyboardButton(f"🎯 سطح سختی: {difficulty_text}", callback_data="admin_set_difficulty")],
+        [InlineKeyboardButton(f"⏱ زمان: {settings['time_limit']} دقیقه", callback_data="admin_ask_time_limit")],
+        [InlineKeyboardButton("➕ افزودن مبحث دیگر", callback_data="admin_add_more_topics")],
+        [InlineKeyboardButton("🚀 ساخت آزمون", callback_data="admin_generate_quiz")],
+        [InlineKeyboardButton("🔙 بازگشت به پنل ادمین", callback_data="admin_panel")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    message_text = (
+        f"🎯 تنظیمات آزمون ادمین\n\n"
+        f"📚 مباحث انتخاب شده:\n{topics_text}\n\n"
+        f"📊 سوالات قابل دسترس: {total_available}\n\n"
+        f"⚙️ تنظیمات فعلی:\n"
+        f"• عنوان: {settings['title'] or '❌ تعیین نشده'}\n"
+        f"• توضیحات: {settings['description'] or '❌ تعیین نشده'}\n"
+        f"• تعداد سوالات: {settings['count']}\n"
+        f"• سطح سختی: {difficulty_text}\n"
+        f"• زمان: {settings['time_limit']} دقیقه\n\n"
+        f"برای تغییر هر مورد، روی آن کلیک کنید:"
+    )
+    
+    if update.callback_query:
+        await update.callback_query.edit_message_text(message_text, reply_markup=reply_markup)
+    else:
+        await update.message.reply_text(message_text, reply_markup=reply_markup)
+async def admin_ask_for_title(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """درخواست عنوان آزمون از ادمین"""
+    context.user_data['admin_quiz']['step'] = 'waiting_for_title'
+    
+    keyboard = [[InlineKeyboardButton("🔙 بازگشت به تنظیمات", callback_data="admin_back_to_settings")]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.callback_query.edit_message_text(
+        "📝 تعیین عنوان آزمون\n\n"
+        "لطفاً عنوان آزمون را وارد کنید:\n\n"
+        "💡 مثال: 'آزمون ریاضی پیشرفته - آبان ۱۴۰۳'",
+        reply_markup=reply_markup
+    )
+
+async def admin_ask_for_description(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """درخواست توضیحات آزمون از ادمین"""
+    context.user_data['admin_quiz']['step'] = 'waiting_for_description'
+    
+    keyboard = [[InlineKeyboardButton("🔙 بازگشت به تنظیمات", callback_data="admin_back_to_settings")]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.callback_query.edit_message_text(
+        "📋 تعیین توضیحات آزمون\n\n"
+        "لطفاً توضیحات آزمون را وارد کنید (اختیاری):\n\n"
+        "💡 می‌توانید 'ندارد' را ارسال کنید تا از توضیحات صرف نظر کنید.",
+        reply_markup=reply_markup
+    )
+
+async def admin_ask_for_question_count(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """درخواست تعداد سوالات از ادمین"""
+    context.user_data['admin_quiz']['step'] = 'waiting_for_count'
+    
+    # محاسبه حداکثر سوالات قابل دسترس
+    total_available = sum([get_questions_count_by_topic(tid)[0][0] for tid in context.user_data['admin_quiz']['selected_topics']])
+    
+    keyboard = [[InlineKeyboardButton("🔙 بازگشت به تنظیمات", callback_data="admin_back_to_settings")]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.callback_query.edit_message_text(
+        f"📊 تعیین تعداد سوالات\n\n"
+        f"📚 سوالات قابل دسترس: {total_available}\n\n"
+        f"لطفاً تعداد سوالات مورد نظر را وارد کنید (عدد بین ۱ تا {total_available}):",
+        reply_markup=reply_markup
+    )
+
+async def admin_ask_for_time_limit(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """درخواست زمان آزمون از ادمین"""
+    context.user_data['admin_quiz']['step'] = 'waiting_for_time'
+    
+    keyboard = [[InlineKeyboardButton("🔙 بازگشت به تنظیمات", callback_data="admin_back_to_settings")]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.callback_query.edit_message_text(
+        "⏱ تعیین زمان آزمون\n\n"
+        "لطفاً زمان آزمون را به دقیقه وارد کنید:\n\n"
+        "💡 پیشنهاد: برای هر سوال ۱-۲ دقیقه در نظر بگیرید",
+        reply_markup=reply_markup
+    )
+
+async def admin_set_difficulty(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """تنظیم سطح سختی برای آزمون ادمین"""
+    keyboard = [
+        [InlineKeyboardButton("🎯 همه سطوح", callback_data="admin_set_difficulty_all")],
+        [InlineKeyboardButton("🟢 آسان", callback_data="admin_set_difficulty_easy")],
+        [InlineKeyboardButton("🟡 متوسط", callback_data="admin_set_difficulty_medium")],
+        [InlineKeyboardButton("🔴 سخت", callback_data="admin_set_difficulty_hard")],
+        [InlineKeyboardButton("🔙 بازگشت به تنظیمات", callback_data="admin_back_to_settings")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.callback_query.edit_message_text(
+        "🎯 انتخاب سطح سختی\n\n"
+        "لطفاً سطح مورد نظر را انتخاب کنید:\n\n"
+        "• 🎯 همه سطوح: ترکیبی از سوالات آسان، متوسط و سخت\n"
+        "• 🟢 آسان: سوالات با نرخ موفقیت بالا\n" 
+        "• 🟡 متوسط: سوالات با سختی متوسط\n"
+        "• 🔴 سخت: سوالات چالشی با نرخ موفقیت پایین",
+        reply_markup=reply_markup
+    )
+async def process_admin_title_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """پردازش عنوان وارد شده توسط ادمین"""
+    try:
+        title = update.message.text.strip()
+        
+        if len(title) < 3:
+            await update.message.reply_text("❌ عنوان باید حداقل ۳ کاراکتر باشد!")
+            return
+        
+        context.user_data['admin_quiz']['settings']['title'] = title
+        context.user_data['admin_quiz']['step'] = 'settings'
+        
+        await update.message.reply_text(f"✅ عنوان آزمون ثبت شد: {title}")
+        await admin_show_settings(update, context)
+        
+    except Exception as e:
+        logger.error(f"Error processing admin title: {e}")
+        await update.message.reply_text("❌ خطا در پردازش عنوان!")
+
+async def process_admin_description_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """پردازش توضیحات وارد شده توسط ادمین"""
+    try:
+        description = update.message.text.strip()
+        
+        if description == 'ندارد':
+            description = ""
+        
+        context.user_data['admin_quiz']['settings']['description'] = description
+        context.user_data['admin_quiz']['step'] = 'settings'
+        
+        if description:
+            await update.message.reply_text(f"✅ توضیحات آزمون ثبت شد")
+        else:
+            await update.message.reply_text("✅ توضیحات حذف شد")
+        
+        await admin_show_settings(update, context)
+        
+    except Exception as e:
+        logger.error(f"Error processing admin description: {e}")
+        await update.message.reply_text("❌ خطا در پردازش توضیحات!")
+
+async def process_admin_question_count_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """پردازش تعداد سوالات وارد شده توسط ادمین"""
+    try:
+        text = update.message.text.strip()
+        count = int(text)
+        
+        # محاسبه حداکثر سوالات قابل دسترس
+        total_available = sum([get_questions_count_by_topic(tid)[0][0] for tid in context.user_data['admin_quiz']['selected_topics']])
+        
+        if count < 1:
+            await update.message.reply_text("❌ تعداد سوالات باید حداقل ۱ باشد!")
+            return
+        elif count > total_available:
+            await update.message.reply_text(
+                f"❌ تعداد سوالات نمی‌تواند بیشتر از {total_available} باشد!\n\n"
+                f"لطفاً عدد کوچکتری وارد کنید:"
+            )
+            return
+        
+        context.user_data['admin_quiz']['settings']['count'] = count
+        context.user_data['admin_quiz']['step'] = 'settings'
+        
+        await update.message.reply_text(f"✅ تعداد سوالات روی {count} تنظیم شد")
+        await admin_show_settings(update, context)
+        
+    except ValueError:
+        await update.message.reply_text("❌ لطفاً یک عدد معتبر وارد کنید:")
+
+async def process_admin_time_limit_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """پردازش زمان آزمون وارد شده توسط ادمین"""
+    try:
+        text = update.message.text.strip()
+        time_limit = int(text)
+        
+        if time_limit < 1:
+            await update.message.reply_text("❌ زمان آزمون باید حداقل ۱ دقیقه باشد!")
+            return
+        elif time_limit > 180:
+            await update.message.reply_text("❌ زمان آزمون نمی‌تواند بیشتر از ۱۸۰ دقیقه باشد!")
+            return
+        
+        context.user_data['admin_quiz']['settings']['time_limit'] = time_limit
+        context.user_data['admin_quiz']['step'] = 'settings'
+        
+        await update.message.reply_text(f"✅ زمان آزمون روی {time_limit} دقیقه تنظیم شد")
+        await admin_show_settings(update, context)
+        
+    except ValueError:
+        await update.message.reply_text("❌ لطفاً یک عدد معتبر وارد کنید:")
+async def admin_generate_quiz(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """ایجاد نهایی آزمون توسط ادمین"""
+    try:
+        quiz_data = context.user_data['admin_quiz']
+        settings = quiz_data['settings']
+        
+        # اعتبارسنجی داده‌ها
+        if not settings['title']:
+            await update.callback_query.answer("❌ لطفاً عنوان آزمون را تعیین کنید!", show_alert=True)
+            return
+        
+        if not quiz_data['selected_topics']:
+            await update.callback_query.answer("❌ لطفاً حداقل یک مبحث انتخاب کنید!", show_alert=True)
+            return
+        
+        # دریافت سوالات از بانک
+        questions = get_questions_by_topics(
+            quiz_data['selected_topics'],
+            settings['difficulty'],
+            settings['count']
+        )
+        
+        if not questions:
+            await update.callback_query.answer("❌ هیچ سوالی برای مباحث انتخاب شده یافت نشد!", show_alert=True)
+            return
+        
+        # ایجاد آزمون در دیتابیس
+        quiz_id = create_quiz(
+            settings['title'],
+            settings['description'],
+            settings['time_limit'],
+            True  # created_by_admin = True
+        )
+        
+        if not quiz_id:
+            await update.callback_query.answer("❌ خطا در ایجاد آزمون!", show_alert=True)
+            return
+        
+        # افزودن سوالات به آزمون
+        for i, question in enumerate(questions):
+            add_question(quiz_id, question[1], question[2], i)
+        
+        # پاک کردن داده‌های موقت
+        if 'admin_quiz' in context.user_data:
+            del context.user_data['admin_quiz']
+        
+        # نمایش پیام موفقیت
+        success_message = (
+            f"✅ آزمون ادمین با موفقیت ایجاد شد!\n\n"
+            f"📌 عنوان: {settings['title']}\n"
+            f"📝 توضیحات: {settings['description'] or 'ندارد'}\n"
+            f"📚 مباحث: {len(quiz_data['selected_topics'])} مبحث\n"
+            f"📊 تعداد سوالات: {len(questions)}\n"
+            f"⏱ زمان: {settings['time_limit']} دقیقه\n"
+            f"🎯 سطح سختی: {settings['difficulty']}\n\n"
+            f"آزمون اکنون در لیست آزمون‌های فعال قابل مشاهده است. 👑"
+        )
+        
+        keyboard = [
+            [InlineKeyboardButton("📋 مدیریت آزمون‌ها", callback_data="admin_manage_quizzes")],
+            [InlineKeyboardButton("🔙 پنل ادمین", callback_data="admin_panel")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await update.callback_query.edit_message_text(success_message, reply_markup=reply_markup)
+        
+    except Exception as e:
+        logger.error(f"Error in admin generate quiz: {e}")
+        await update.callback_query.answer("❌ خطا در ایجاد آزمون!", show_alert=True)
+async def admin_add_more_topics(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """افزودن مباحث بیشتر به آزمون ادمین"""
+    context.user_data['admin_quiz']['step'] = 'adding_more_topics'
+    
+    # نمایش مباحث انتخاب شده فعلی
+    topics_text = "\n".join([
+        f"• {get_topic_name(tid)}"
+        for tid in context.user_data['admin_quiz']['selected_topics']
+    ])
+    
+    keyboard = [
+        [InlineKeyboardButton("🔍 افزودن مبحث جدید", switch_inline_query_current_chat="")],
+        [InlineKeyboardButton("🔙 بازگشت به تنظیمات", callback_data="admin_back_to_settings")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.callback_query.edit_message_text(
+        f"📚 افزودن مباحث بیشتر\n\n"
+        f"مباحث انتخاب شده فعلی:\n{topics_text}\n\n"
+        f"روی دکمه زیر کلیک کنید تا مبحث جدیدی اضافه کنید:",
+        reply_markup=reply_markup
+    )
+
+async def admin_back_to_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """بازگشت به تنظیمات آزمون ادمین"""
+    context.user_data['admin_quiz']['step'] = 'settings'
+    await admin_show_settings(update, context)
 
 async def admin_manage_quizzes(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """مدیریت آزمون‌ها"""
