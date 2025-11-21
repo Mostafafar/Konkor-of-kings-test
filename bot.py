@@ -1801,6 +1801,60 @@ async def admin_create_quiz(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "روی دکمه زیر کلیک کنید و مبحث اول را انتخاب کنید:",
         reply_markup=reply_markup
     )
+async def admin_handle_first_topic_selection_from_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """پردازش انتخاب مبحث اول برای آزمون ادمین از طریق پیام"""
+    try:
+        text = update.message.text
+        topic_name = text.replace("مبحث انتخاب شده:", "").strip()
+        
+        topic_info = get_topic_by_name(topic_name)
+        if not topic_info:
+            await update.message.reply_text(f"❌ مبحث '{topic_name}' یافت نشد!")
+            return
+        
+        topic_id, name, description = topic_info[0]
+        await admin_handle_first_topic_selection(update, context, topic_id)
+        
+    except Exception as e:
+        logger.error(f"Error in admin first topic selection from message: {e}")
+        await update.message.reply_text("❌ خطا در پردازش انتخاب مبحث!")
+
+async def admin_handle_additional_topic_selection(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """پردازش انتخاب مباحث اضافی برای آزمون ادمین"""
+    try:
+        text = update.message.text
+        topic_name = text.replace("مبحث انتخاب شده:", "").strip()
+        
+        topic_info = get_topic_by_name(topic_name)
+        if not topic_info:
+            await update.message.reply_text(f"❌ مبحث '{topic_name}' یافت نشد!")
+            return
+        
+        topic_id, name, description = topic_info[0]
+        
+        # بررسی تکراری نبودن مبحث
+        if topic_id in context.user_data['admin_quiz']['selected_topics']:
+            await update.message.reply_text(f"❌ مبحث '{name}' قبلاً اضافه شده است!")
+            return
+        
+        # بررسی تعداد سوالات موجود
+        questions_count = get_questions_count_by_topic(topic_id)
+        available_questions = questions_count[0][0] if questions_count else 0
+        
+        if available_questions == 0:
+            await update.message.reply_text(f"❌ هیچ سوالی برای مبحث '{name}' در بانک وجود ندارد!")
+            return
+        
+        # افزودن مبحث به لیست
+        context.user_data['admin_quiz']['selected_topics'].append(topic_id)
+        
+        # بازگشت به تنظیمات
+        context.user_data['admin_quiz']['step'] = 'settings'
+        await admin_show_settings(update, context)
+        
+    except Exception as e:
+        logger.error(f"Error in admin additional topic selection: {e}")
+        await update.message.reply_text("❌ خطا در پردازش انتخاب مبحث!")
 async def admin_handle_first_topic_selection(update: Update, context: ContextTypes.DEFAULT_TYPE, topic_id: int):
     """مدیریت انتخاب مبحث اول برای آزمون ادمین"""
     try:
