@@ -499,6 +499,29 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     data = query.data
     
+    # هندلرهای جدید برای تنظیمات اولیه
+    if data == "initial_set_count":
+        await initial_set_count(update, context)
+    elif data.startswith("initial_set_count_"):
+        count = int(data.split("_")[3])
+        context.user_data['custom_quiz']['settings']['count'] = count
+        await back_to_initial_settings(update, context)
+    elif data == "initial_set_difficulty":
+        await initial_set_difficulty(update, context)
+    elif data.startswith("initial_set_difficulty_"):
+        difficulty = data.split("_")[3]
+        context.user_data['custom_quiz']['settings']['difficulty'] = difficulty
+        await back_to_initial_settings(update, context)
+    elif data == "initial_set_time":
+        await initial_set_time(update, context)
+    elif data.startswith("initial_set_time_"):
+        time_limit = int(data.split("_")[3])
+        context.user_data['custom_quiz']['settings']['time_limit'] = time_limit
+        await back_to_initial_settings(update, context)
+    elif data == "add_more_topics":
+        await add_more_topics(update, context)
+    elif data == "back_to_initial_settings":
+        await back_to_initial_settings(update, context)
     if data == "take_quiz":
         await show_quiz_list(update, context)
     elif data == "create_custom_quiz":
@@ -597,7 +620,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ساخت آزمون سفارشی
 async def start_custom_quiz_creation(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['custom_quiz'] = {
-        'step': 'select_topics',
+        'step': 'select_first_topic',
         'selected_topics': [],
         'settings': {
             'count': 20,
@@ -607,34 +630,22 @@ async def start_custom_quiz_creation(update: Update, context: ContextTypes.DEFAU
     }
     
     keyboard = [
-        [InlineKeyboardButton("🔍 انتخاب مباحث", switch_inline_query_current_chat="")],
+        [InlineKeyboardButton("🔍 انتخاب مبحث اول", switch_inline_query_current_chat="")],
         [InlineKeyboardButton("🔙 بازگشت به منوی اصلی", callback_data="main_menu")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     await update.callback_query.edit_message_text(
         "🎯 ساخت آزمون سفارشی\n\n"
-        "مرحله ۱/۴: انتخاب مباحث\n\n"
-        "روی دکمه زیر کلیک کنید و مباحث مورد نظرتان را جستجو و انتخاب کنید:",
+        "مرحله ۱/۴: انتخاب مبحث اول\n\n"
+        "روی دکمه زیر کلیک کنید و مبحث اول را انتخاب کنید:",
         reply_markup=reply_markup
-    )
+        )
 
-async def handle_custom_quiz_topic_selection(update: Update, context: ContextTypes.DEFAULT_TYPE, topic_id: int):
-    """مدیریت انتخاب مبحث در آزمون سفارشی"""
+async def handle_first_topic_selection(update: Update, context: ContextTypes.DEFAULT_TYPE, topic_id: int):
+    """مدیریت انتخاب مبحث اول در آزمون سفارشی"""
     try:
         user_id = update.effective_user.id
-        
-        # اطمینان از وجود ساختار داده‌ها
-        if 'custom_quiz' not in context.user_data:
-            context.user_data['custom_quiz'] = {
-                'step': 'selecting_topics',
-                'selected_topics': [],
-                'settings': {
-                    'count': 20,
-                    'time_limit': 30,
-                    'difficulty': 'all'
-                }
-            }
         
         # دریافت اطلاعات مبحث
         topic_info = get_topic_by_id(topic_id)
@@ -643,11 +654,6 @@ async def handle_custom_quiz_topic_selection(update: Update, context: ContextTyp
             return
         
         topic_id, name, description = topic_info[0]
-        
-        # بررسی تکراری نبودن مبحث
-        if topic_id in context.user_data['custom_quiz']['selected_topics']:
-            await update.message.reply_text(f"❌ مبحث '{name}' قبلاً اضافه شده است!")
-            return
         
         # بررسی تعداد سوالات موجود
         questions_count = get_questions_count_by_topic(topic_id)
@@ -659,67 +665,195 @@ async def handle_custom_quiz_topic_selection(update: Update, context: ContextTyp
         
         # افزودن مبحث به لیست
         context.user_data['custom_quiz']['selected_topics'].append(topic_id)
+        context.user_data['custom_quiz']['step'] = 'settings'
+        context.user_data['custom_quiz']['first_topic_name'] = name
         
-        # محاسبه کل سوالات قابل دسترس
-        total_available = sum([get_questions_count_by_topic(tid)[0][0] for tid in context.user_data['custom_quiz']['selected_topics']])
-        
-        # ایجاد پیام وضعیت
-        topics_text = "\n".join([
-            f"• {get_topic_name(tid)} ({get_questions_count_by_topic(tid)[0][0]} سوال)"
-            for tid in context.user_data['custom_quiz']['selected_topics']
-        ])
-        
-        keyboard = [
-            [InlineKeyboardButton("➕ افزودن مبحث دیگر", switch_inline_query_current_chat="مبحث ")],
-            [InlineKeyboardButton("⚙️ تنظیمات آزمون", callback_data="custom_quiz_settings")],
-            [InlineKeyboardButton("🚀 شروع آزمون", callback_data="generate_custom_quiz")],
-            [InlineKeyboardButton("🗑️ حذف همه مباحث", callback_data="clear_custom_topics")],
-            [InlineKeyboardButton("🔙 بازگشت به منوی اصلی", callback_data="main_menu")]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        
-        message_text = (
-            f"✅ مبحث '{name}' اضافه شد!\n\n"
-            f"📚 مباحث انتخاب شده:\n{topics_text}\n\n"
-            f"📊 مجموع سوالات قابل دسترس: {total_available}\n\n"
-            f"می‌توانید:\n"
-            f"• مباحث بیشتری اضافه کنید\n"
-            f"• تنظیمات آزمون را تغییر دهید\n"
-            f"• یا آزمون را شروع کنید"
-        )
-        
-        await update.message.reply_text(message_text, reply_markup=reply_markup)
+        # نمایش تنظیمات
+        await show_initial_settings(update, context)
         
     except Exception as e:
-        logger.error(f"Error in custom quiz topic selection: {e}")
+        logger.error(f"Error in first topic selection: {e}")
         await update.message.reply_text("❌ خطا در پردازش انتخاب مبحث!")
 
-async def handle_custom_quiz_topic_selection_from_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """پردازش انتخاب مبحث از طریق پیام برای آزمون سفارشی"""
-    try:
-        text = update.message.text
-        logger.info(f"🎯 CUSTOM_QUIZ_TOPIC: Processing topic selection: {text}")
-        
-        # استخراج نام مبحث از متن
-        topic_name = text.replace("مبحث انتخاب شده:", "").strip()
-        
-        # پیدا کردن مبحث در دیتابیس
-        topic_info = get_topic_by_name(topic_name)
-        if not topic_info:
-            logger.error(f"❌ CUSTOM_QUIZ_TOPIC: Topic not found: {topic_name}")
-            await update.message.reply_text(
-                f"❌ مبحث '{topic_name}' یافت نشد! لطفاً دوباره تلاش کنید."
-            )
-            return
-        
-        topic_id, name, description = topic_info[0]
-        
-        # فراخوانی تابع مدیریت انتخاب مبحث
-        await handle_custom_quiz_topic_selection(update, context, topic_id)
-        
-    except Exception as e:
-        logger.error(f"❌ CUSTOM_QUIZ_TOPIC: Error: {e}")
-        await update.message.reply_text("❌ خطا در پردازش انتخاب مبحث! لطفاً دوباره تلاش کنید.")
+# تابع جدید برای نمایش تنظیمات اولیه
+async def show_initial_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """نمایش تنظیمات اولیه بعد از انتخاب مبحث اول"""
+    quiz_data = context.user_data['custom_quiz']
+    settings = quiz_data['settings']
+    first_topic_name = quiz_data.get('first_topic_name', 'نامشخص')
+    
+    # محاسبه سوالات قابل دسترس برای مبحث اول
+    available_questions = get_questions_count_by_topic(quiz_data['selected_topics'][0])[0][0]
+    
+    # متن نمایشی برای سطح سختی
+    difficulty_texts = {
+        'all': '🎯 همه سطوح',
+        'easy': '🟢 آسان', 
+        'medium': '🟡 متوسط',
+        'hard': '🔴 سخت'
+    }
+    difficulty_text = difficulty_texts.get(settings['difficulty'], '🎯 همه سطوح')
+    
+    keyboard = [
+        [InlineKeyboardButton(f"📊 تعداد سوالات: {settings['count']}", callback_data="initial_set_count")],
+        [InlineKeyboardButton(f"🎯 سطح سختی: {difficulty_text}", callback_data="initial_set_difficulty")],
+        [InlineKeyboardButton(f"⏱ زمان: {settings['time_limit']} دقیقه", callback_data="initial_set_time")],
+        [InlineKeyboardButton("➕ افزودن مبحث دیگر", callback_data="add_more_topics")],
+        [InlineKeyboardButton("🚀 ساخت و شروع آزمون", callback_data="generate_custom_quiz")],
+        [InlineKeyboardButton("🔙 بازگشت", callback_data="create_custom_quiz")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    message_text = (
+        f"✅ مبحث اول انتخاب شد: **{first_topic_name}**\n\n"
+        f"📊 سوالات قابل دسترس: {available_questions}\n\n"
+        f"⚙️ تنظیمات آزمون:\n"
+        f"• تعداد سوالات: {settings['count']}\n" 
+        f"• سطح سختی: {difficulty_text}\n"
+        f"• زمان: {settings['time_limit']} دقیقه\n\n"
+        f"می‌توانید:\n"
+        f"• تنظیمات را تغییر دهید\n"
+        f"• مباحث بیشتری اضافه کنید\n" 
+        f"• یا آزمون را شروع کنید"
+    )
+    
+    await update.message.reply_text(message_text, reply_markup=reply_markup, parse_mode=ParseMode.MARKDOWN)
+
+# توابع جدید برای تنظیمات اولیه
+async def initial_set_count(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """تنظیم تعداد سوالات در مرحله اولیه"""
+    quiz_data = context.user_data['custom_quiz']
+    available_questions = get_questions_count_by_topic(quiz_data['selected_topics'][0])[0][0]
+    
+    keyboard = []
+    counts = [10, 15, 20, 25, 30, 40, 50]
+    
+    for count in counts:
+        if count <= available_questions:
+            keyboard.append([InlineKeyboardButton(f"{count} سوال", callback_data=f"initial_set_count_{count}")])
+    
+    keyboard.append([InlineKeyboardButton("🔙 بازگشت به تنظیمات", callback_data="back_to_initial_settings")])
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.callback_query.edit_message_text(
+        f"📊 انتخاب تعداد سوالات\n\n"
+        f"📚 سوالات قابل دسترس برای مبحث فعلی: {available_questions}\n\n"
+        f"لطفاً تعداد سوالات را انتخاب کنید:",
+        reply_markup=reply_markup
+    )
+
+async def initial_set_difficulty(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """تنظیم سطح سختی در مرحله اولیه"""
+    keyboard = [
+        [InlineKeyboardButton("🎯 همه سطوح", callback_data="initial_set_difficulty_all")],
+        [InlineKeyboardButton("🟢 آسان", callback_data="initial_set_difficulty_easy")],
+        [InlineKeyboardButton("🟡 متوسط", callback_data="initial_set_difficulty_medium")],
+        [InlineKeyboardButton("🔴 سخت", callback_data="initial_set_difficulty_hard")],
+        [InlineKeyboardButton("🔙 بازگشت به تنظیمات", callback_data="back_to_initial_settings")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.callback_query.edit_message_text(
+        "🎯 انتخاب سطح سختی\n\n"
+        "لطفاً سطح مورد نظر را انتخاب کنید:\n\n"
+        "• 🎯 همه سطوح: ترکیبی از سوالات آسان، متوسط و سخت\n"
+        "• 🟢 آسان: سوالات با نرخ موفقیت بالا\n" 
+        "• 🟡 متوسط: سوالات با سختی متوسط\n"
+        "• 🔴 سخت: سوالات چالشی با نرخ موفقیت پایین",
+        reply_markup=reply_markup
+    )
+
+async def initial_set_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """تنظیم زمان در مرحله اولیه"""
+    keyboard = [
+        [InlineKeyboardButton("۱۵ دقیقه", callback_data="initial_set_time_15")],
+        [InlineKeyboardButton("۳۰ دقیقه", callback_data="initial_set_time_30")],
+        [InlineKeyboardButton("۴۵ دقیقه", callback_data="initial_set_time_45")],
+        [InlineKeyboardButton("۶۰ دقیقه", callback_data="initial_set_time_60")],
+        [InlineKeyboardButton("۹۰ دقیقه", callback_data="initial_set_time_90")],
+        [InlineKeyboardButton("🔙 بازگشت به تنظیمات", callback_data="back_to_initial_settings")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.callback_query.edit_message_text(
+        "⏱ انتخاب زمان آزمون\n\nلطفاً زمان مورد نظر را انتخاب کنید:",
+        reply_markup=reply_markup
+    )
+
+async def add_more_topics(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """افزودن مباحث بیشتر"""
+    context.user_data['custom_quiz']['step'] = 'adding_more_topics'
+    
+    # نمایش مباحث انتخاب شده فعلی
+    topics_text = "\n".join([
+        f"• {get_topic_name(tid)}"
+        for tid in context.user_data['custom_quiz']['selected_topics']
+    ])
+    
+    keyboard = [
+        [InlineKeyboardButton("🔍 افزودن مبحث جدید", switch_inline_query_current_chat="")],
+        [InlineKeyboardButton("🔙 بازگشت به تنظیمات", callback_data="back_to_initial_settings")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.callback_query.edit_message_text(
+        f"📚 افزودن مباحث بیشتر\n\n"
+        f"مباحث انتخاب شده فعلی:\n{topics_text}\n\n"
+        f"روی دکمه زیر کلیک کنید تا مبحث جدیدی اضافه کنید:",
+        reply_markup=reply_markup
+    )
+
+async def back_to_initial_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """بازگشت به تنظیمات اولیه"""
+    context.user_data['custom_quiz']['step'] = 'settings'
+    await show_initial_settings_from_callback(update, context)
+
+async def show_initial_settings_from_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """نمایش تنظیمات اولیه از callback"""
+    quiz_data = context.user_data['custom_quiz']
+    settings = quiz_data['settings']
+    
+    # محاسبه کل سوالات قابل دسترس
+    total_available = sum([get_questions_count_by_topic(tid)[0][0] for tid in quiz_data['selected_topics']])
+    
+    # نمایش نام مباحث انتخاب شده
+    topics_text = "\n".join([f"• {get_topic_name(tid)}" for tid in quiz_data['selected_topics']])
+    
+    # متن نمایشی برای سطح سختی
+    difficulty_texts = {
+        'all': '🎯 همه سطوح',
+        'easy': '🟢 آسان',
+        'medium': '🟡 متوسط', 
+        'hard': '🔴 سخت'
+    }
+    difficulty_text = difficulty_texts.get(settings['difficulty'], '🎯 همه سطوح')
+    
+    keyboard = [
+        [InlineKeyboardButton(f"📊 تعداد سوالات: {settings['count']}", callback_data="initial_set_count")],
+        [InlineKeyboardButton(f"🎯 سطح سختی: {difficulty_text}", callback_data="initial_set_difficulty")],
+        [InlineKeyboardButton(f"⏱ زمان: {settings['time_limit']} دقیقه", callback_data="initial_set_time")],
+        [InlineKeyboardButton("➕ افزودن مبحث دیگر", callback_data="add_more_topics")],
+        [InlineKeyboardButton("🚀 ساخت و شروع آزمون", callback_data="generate_custom_quiz")],
+        [InlineKeyboardButton("🔙 بازگشت", callback_data="create_custom_quiz")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    message_text = (
+        f"🎯 تنظیمات آزمون سفارشی\n\n"
+        f"📚 مباحث انتخاب شده:\n{topics_text}\n\n"
+        f"📊 سوالات قابل دسترس: {total_available}\n\n"
+        f"⚙️ تنظیمات فعلی:\n"
+        f"• تعداد سوالات: {settings['count']}\n"
+        f"• سطح سختی: {difficulty_text}\n"
+        f"• زمان: {settings['time_limit']} دقیقه\n\n"
+        f"لطفاً تنظیمات مورد نظر را انتخاب کنید:"
+    )
+    
+    await update.callback_query.edit_message_text(message_text, reply_markup=reply_markup)
+
+
+
+
 
 async def set_count_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """منوی انتخاب تعداد سوالات"""
@@ -794,21 +928,123 @@ async def clear_custom_topics(update: Update, context: ContextTypes.DEFAULT_TYPE
         "لطفاً مباحث جدید را انتخاب کنید:",
         reply_markup=reply_markup
     )
+async def handle_first_topic_selection_from_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """پردازش انتخاب مبحث اول از طریق پیام"""
+    try:
+        text = update.message.text
+        topic_name = text.replace("مبحث انتخاب شده:", "").strip()
+        
+        topic_info = get_topic_by_name(topic_name)
+        if not topic_info:
+            await update.message.reply_text(f"❌ مبحث '{topic_name}' یافت نشد!")
+            return
+        
+        topic_id, name, description = topic_info[0]
+        await handle_first_topic_selection(update, context, topic_id)
+        
+    except Exception as e:
+        logger.error(f"Error in first topic selection from message: {e}")
+        await update.message.reply_text("❌ خطا در پردازش انتخاب مبحث!")
 
+# تابع جدید برای پردازش انتخاب مباحث اضافی
+async def handle_additional_topic_selection(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """پردازش انتخاب مباحث اضافی"""
+    try:
+        text = update.message.text
+        topic_name = text.replace("مبحث انتخاب شده:", "").strip()
+        
+        topic_info = get_topic_by_name(topic_name)
+        if not topic_info:
+            await update.message.reply_text(f"❌ مبحث '{topic_name}' یافت نشد!")
+            return
+        
+        topic_id, name, description = topic_info[0]
+        
+        # بررسی تکراری نبودن مبحث
+        if topic_id in context.user_data['custom_quiz']['selected_topics']:
+            await update.message.reply_text(f"❌ مبحث '{name}' قبلاً اضافه شده است!")
+            return
+        
+        # بررسی تعداد سوالات موجود
+        questions_count = get_questions_count_by_topic(topic_id)
+        available_questions = questions_count[0][0] if questions_count else 0
+        
+        if available_questions == 0:
+            await update.message.reply_text(f"❌ هیچ سوالی برای مبحث '{name}' در بانک وجود ندارد!")
+            return
+        
+        # افزودن مبحث به لیست
+        context.user_data['custom_quiz']['selected_topics'].append(topic_id)
+        
+        # بازگشت به تنظیمات
+        context.user_data['custom_quiz']['step'] = 'settings'
+        await show_initial_settings_from_message(update, context)
+        
+    except Exception as e:
+        logger.error(f"Error in additional topic selection: {e}")
+        await update.message.reply_text("❌ خطا در پردازش انتخاب مبحث!")
+
+async def show_initial_settings_from_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """نمایش تنظیمات اولیه از پیام"""
+    quiz_data = context.user_data['custom_quiz']
+    settings = quiz_data['settings']
+    
+    # محاسبه کل سوالات قابل دسترس
+    total_available = sum([get_questions_count_by_topic(tid)[0][0] for tid in quiz_data['selected_topics']])
+    
+    # نمایش نام مباحث انتخاب شده
+    topics_text = "\n".join([f"• {get_topic_name(tid)}" for tid in quiz_data['selected_topics']])
+    
+    # متن نمایشی برای سطح سختی
+    difficulty_texts = {
+        'all': '🎯 همه سطوح',
+        'easy': '🟢 آسان',
+        'medium': '🟡 متوسط',
+        'hard': '🔴 سخت'
+    }
+    difficulty_text = difficulty_texts.get(settings['difficulty'], '🎯 همه سطوح')
+    
+    keyboard = [
+        [InlineKeyboardButton(f"📊 تعداد سوالات: {settings['count']}", callback_data="initial_set_count")],
+        [InlineKeyboardButton(f"🎯 سطح سختی: {difficulty_text}", callback_data="initial_set_difficulty")],
+        [InlineKeyboardButton(f"⏱ زمان: {settings['time_limit']} دقیقه", callback_data="initial_set_time")],
+        [InlineKeyboardButton("➕ افزودن مبحث دیگر", callback_data="add_more_topics")],
+        [InlineKeyboardButton("🚀 ساخت و شروع آزمون", callback_data="generate_custom_quiz")],
+        [InlineKeyboardButton("🔙 بازگشت", callback_data="create_custom_quiz")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    message_text = (
+        f"✅ مبحث جدید اضافه شد!\n\n"
+        f"📚 مباحث انتخاب شده:\n{topics_text}\n\n"
+        f"📊 سوالات قابل دسترس: {total_available}\n\n"
+        f"⚙️ تنظیمات فعلی:\n"
+        f"• تعداد سوالات: {settings['count']}\n"
+        f"• سطح سختی: {difficulty_text}\n"
+        f"• زمان: {settings['time_limit']} دقیقه\n\n"
+        f"لطفاً تنظیمات مورد نظر را انتخاب کنید:"
+    )
+    
+    await update.message.reply_text(message_text, reply_markup=reply_markup)
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """مدیریت پیام‌های متنی"""
     if update.message.contact:
         await handle_contact(update, context)
         return
     
-    # بررسی آزمون سفارشی - انتخاب مبحث
+    # بررسی آزمون سفارشی - انتخاب مبحث اول
     if (update.message.text and 
         update.message.text.startswith('مبحث انتخاب شده:') and
-        'custom_quiz' in context.user_data and
-        context.user_data['custom_quiz']['step'] == 'selecting_topics'):
+        'custom_quiz' in context.user_data):
         
-        await handle_custom_quiz_topic_selection_from_message(update, context)
-        return
+        quiz_data = context.user_data['custom_quiz']
+        
+        if quiz_data['step'] == 'select_first_topic':
+            await handle_first_topic_selection_from_message(update, context)
+            return
+        elif quiz_data['step'] == 'adding_more_topics':
+            await handle_additional_topic_selection(update, context)
+            return
     
     # بررسی اول: اگر ادمین در حال افزودن سوال به بانک است و متن انتخاب مبحث است
     if (update.effective_user.id == ADMIN_ID and 
