@@ -500,28 +500,26 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = query.data
     
     # هندلرهای جدید برای تنظیمات اولیه
-    if data == "initial_set_count":
-        await initial_set_count(update, context)
-    elif data.startswith("initial_set_count_"):
-        count = int(data.split("_")[3])
-        context.user_data['custom_quiz']['settings']['count'] = count
-        await back_to_initial_settings(update, context)
+    if data == "ask_question_count":
+        await ask_for_question_count(update, context)
+    elif data == "ask_time_limit":
+        await ask_for_time_limit(update, context)
     elif data == "initial_set_difficulty":
         await initial_set_difficulty(update, context)
     elif data.startswith("initial_set_difficulty_"):
         difficulty = data.split("_")[3]
         context.user_data['custom_quiz']['settings']['difficulty'] = difficulty
         await back_to_initial_settings(update, context)
-    elif data == "initial_set_time":
-        await initial_set_time(update, context)
-    elif data.startswith("initial_set_time_"):
-        time_limit = int(data.split("_")[3])
-        context.user_data['custom_quiz']['settings']['time_limit'] = time_limit
-        await back_to_initial_settings(update, context)
     elif data == "add_more_topics":
         await add_more_topics(update, context)
     elif data == "back_to_initial_settings":
         await back_to_initial_settings(update, context)
+    
+    # حذف هندلرهای مربوط به دکمه‌های عددی قدیمی
+    # elif data.startswith("initial_set_count_"):
+    # elif data.startswith("initial_set_time_"):
+    
+    # بقیه هندلرها...
     if data == "take_quiz":
         await show_quiz_list(update, context)
     elif data == "create_custom_quiz":
@@ -720,25 +718,34 @@ async def show_initial_settings(update: Update, context: ContextTypes.DEFAULT_TY
     await update.message.reply_text(message_text, reply_markup=reply_markup, parse_mode=ParseMode.MARKDOWN)
 
 # توابع جدید برای تنظیمات اولیه
-async def initial_set_count(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """تنظیم تعداد سوالات در مرحله اولیه"""
-    quiz_data = context.user_data['custom_quiz']
-    available_questions = get_questions_count_by_topic(quiz_data['selected_topics'][0])[0][0]
+async def ask_for_question_count(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """درخواست تعداد سوالات از کاربر"""
+    context.user_data['custom_quiz']['step'] = 'waiting_for_count'
     
-    keyboard = []
-    counts = [10, 15, 20, 25, 30, 40, 50]
+    # محاسبه حداکثر سوالات قابل دسترس
+    total_available = sum([get_questions_count_by_topic(tid)[0][0] for tid in context.user_data['custom_quiz']['selected_topics']])
     
-    for count in counts:
-        if count <= available_questions:
-            keyboard.append([InlineKeyboardButton(f"{count} سوال", callback_data=f"initial_set_count_{count}")])
-    
-    keyboard.append([InlineKeyboardButton("🔙 بازگشت به تنظیمات", callback_data="back_to_initial_settings")])
+    keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data="back_to_initial_settings")]]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     await update.callback_query.edit_message_text(
-        f"📊 انتخاب تعداد سوالات\n\n"
-        f"📚 سوالات قابل دسترس برای مبحث فعلی: {available_questions}\n\n"
-        f"لطفاً تعداد سوالات را انتخاب کنید:",
+        f"📊 تعیین تعداد سوالات\n\n"
+        f"📚 سوالات قابل دسترس: {total_available}\n\n"
+        f"لطفاً تعداد سوالات مورد نظر را وارد کنید (عدد بین ۱ تا {total_available}):",
+        reply_markup=reply_markup
+    )
+
+async def ask_for_time_limit(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """درخواست زمان آزمون از کاربر"""
+    context.user_data['custom_quiz']['step'] = 'waiting_for_time'
+    
+    keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data="back_to_initial_settings")]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.callback_query.edit_message_text(
+        "⏱ تعیین زمان آزمون\n\n"
+        "لطفاً زمان آزمون را به دقیقه وارد کنید (مثلاً 30 برای ۳۰ دقیقه):\n\n"
+        "💡 پیشنهاد: برای هر سوال ۱-۲ دقیقه در نظر بگیرید",
         reply_markup=reply_markup
     )
 
@@ -763,22 +770,8 @@ async def initial_set_difficulty(update: Update, context: ContextTypes.DEFAULT_T
         reply_markup=reply_markup
     )
 
-async def initial_set_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """تنظیم زمان در مرحله اولیه"""
-    keyboard = [
-        [InlineKeyboardButton("۱۵ دقیقه", callback_data="initial_set_time_15")],
-        [InlineKeyboardButton("۳۰ دقیقه", callback_data="initial_set_time_30")],
-        [InlineKeyboardButton("۴۵ دقیقه", callback_data="initial_set_time_45")],
-        [InlineKeyboardButton("۶۰ دقیقه", callback_data="initial_set_time_60")],
-        [InlineKeyboardButton("۹۰ دقیقه", callback_data="initial_set_time_90")],
-        [InlineKeyboardButton("🔙 بازگشت به تنظیمات", callback_data="back_to_initial_settings")]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    await update.callback_query.edit_message_text(
-        "⏱ انتخاب زمان آزمون\n\nلطفاً زمان مورد نظر را انتخاب کنید:",
-        reply_markup=reply_markup
-    )
+
+
 
 async def add_more_topics(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """افزودن مباحث بیشتر"""
@@ -828,10 +821,11 @@ async def show_initial_settings_from_callback(update: Update, context: ContextTy
     }
     difficulty_text = difficulty_texts.get(settings['difficulty'], '🎯 همه سطوح')
     
+    # تغییر دکمه‌ها به ورود عددی
     keyboard = [
-        [InlineKeyboardButton(f"📊 تعداد سوالات: {settings['count']}", callback_data="initial_set_count")],
+        [InlineKeyboardButton(f"📊 تعداد سوالات: {settings['count']}", callback_data="ask_question_count")],
         [InlineKeyboardButton(f"🎯 سطح سختی: {difficulty_text}", callback_data="initial_set_difficulty")],
-        [InlineKeyboardButton(f"⏱ زمان: {settings['time_limit']} دقیقه", callback_data="initial_set_time")],
+        [InlineKeyboardButton(f"⏱ زمان: {settings['time_limit']} دقیقه", callback_data="ask_time_limit")],
         [InlineKeyboardButton("➕ افزودن مبحث دیگر", callback_data="add_more_topics")],
         [InlineKeyboardButton("🚀 ساخت و شروع آزمون", callback_data="generate_custom_quiz")],
         [InlineKeyboardButton("🔙 بازگشت", callback_data="create_custom_quiz")]
@@ -846,14 +840,10 @@ async def show_initial_settings_from_callback(update: Update, context: ContextTy
         f"• تعداد سوالات: {settings['count']}\n"
         f"• سطح سختی: {difficulty_text}\n"
         f"• زمان: {settings['time_limit']} دقیقه\n\n"
-        f"لطفاً تنظیمات مورد نظر را انتخاب کنید:"
+        f"برای تغییر هر مورد، روی آن کلیک کنید:"
     )
     
     await update.callback_query.edit_message_text(message_text, reply_markup=reply_markup)
-
-
-
-
 
 async def set_count_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """منوی انتخاب تعداد سوالات"""
@@ -984,48 +974,58 @@ async def handle_additional_topic_selection(update: Update, context: ContextType
         logger.error(f"Error in additional topic selection: {e}")
         await update.message.reply_text("❌ خطا در پردازش انتخاب مبحث!")
 
-async def show_initial_settings_from_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """نمایش تنظیمات اولیه از پیام"""
-    quiz_data = context.user_data['custom_quiz']
-    settings = quiz_data['settings']
-    
-    # محاسبه کل سوالات قابل دسترس
-    total_available = sum([get_questions_count_by_topic(tid)[0][0] for tid in quiz_data['selected_topics']])
-    
-    # نمایش نام مباحث انتخاب شده
-    topics_text = "\n".join([f"• {get_topic_name(tid)}" for tid in quiz_data['selected_topics']])
-    
-    # متن نمایشی برای سطح سختی
-    difficulty_texts = {
-        'all': '🎯 همه سطوح',
-        'easy': '🟢 آسان',
-        'medium': '🟡 متوسط',
-        'hard': '🔴 سخت'
-    }
-    difficulty_text = difficulty_texts.get(settings['difficulty'], '🎯 همه سطوح')
-    
-    keyboard = [
-        [InlineKeyboardButton(f"📊 تعداد سوالات: {settings['count']}", callback_data="initial_set_count")],
-        [InlineKeyboardButton(f"🎯 سطح سختی: {difficulty_text}", callback_data="initial_set_difficulty")],
-        [InlineKeyboardButton(f"⏱ زمان: {settings['time_limit']} دقیقه", callback_data="initial_set_time")],
-        [InlineKeyboardButton("➕ افزودن مبحث دیگر", callback_data="add_more_topics")],
-        [InlineKeyboardButton("🚀 ساخت و شروع آزمون", callback_data="generate_custom_quiz")],
-        [InlineKeyboardButton("🔙 بازگشت", callback_data="create_custom_quiz")]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    message_text = (
-        f"✅ مبحث جدید اضافه شد!\n\n"
-        f"📚 مباحث انتخاب شده:\n{topics_text}\n\n"
-        f"📊 سوالات قابل دسترس: {total_available}\n\n"
-        f"⚙️ تنظیمات فعلی:\n"
-        f"• تعداد سوالات: {settings['count']}\n"
-        f"• سطح سختی: {difficulty_text}\n"
-        f"• زمان: {settings['time_limit']} دقیقه\n\n"
-        f"لطفاً تنظیمات مورد نظر را انتخاب کنید:"
-    )
-    
-    await update.message.reply_text(message_text, reply_markup=reply_markup)
+
+async def process_question_count_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """پردازش تعداد سوالات وارد شده توسط کاربر"""
+    try:
+        text = update.message.text.strip()
+        count = int(text)
+        
+        # محاسبه حداکثر سوالات قابل دسترس
+        total_available = sum([get_questions_count_by_topic(tid)[0][0] for tid in context.user_data['custom_quiz']['selected_topics']])
+        
+        if count < 1:
+            await update.message.reply_text("❌ تعداد سوالات باید حداقل ۱ باشد!")
+            return
+        elif count > total_available:
+            await update.message.reply_text(
+                f"❌ تعداد سوالات نمی‌تواند بیشتر از {total_available} باشد!\n\n"
+                f"لطفاً عدد کوچکتری وارد کنید:"
+            )
+            return
+        
+        # ذخیره تعداد سوالات
+        context.user_data['custom_quiz']['settings']['count'] = count
+        context.user_data['custom_quiz']['step'] = 'settings'
+        
+        await update.message.reply_text(f"✅ تعداد سوالات روی {count} تنظیم شد")
+        await show_initial_settings_from_message(update, context)
+        
+    except ValueError:
+        await update.message.reply_text("❌ لطفاً یک عدد معتبر وارد کنید:")
+
+async def process_time_limit_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """پردازش زمان آزمون وارد شده توسط کاربر"""
+    try:
+        text = update.message.text.strip()
+        time_limit = int(text)
+        
+        if time_limit < 1:
+            await update.message.reply_text("❌ زمان آزمون باید حداقل ۱ دقیقه باشد!")
+            return
+        elif time_limit > 180:  # حداکثر ۳ ساعت
+            await update.message.reply_text("❌ زمان آزمون نمی‌تواند بیشتر از ۱۸۰ دقیقه باشد!")
+            return
+        
+        # ذخیره زمان آزمون
+        context.user_data['custom_quiz']['settings']['time_limit'] = time_limit
+        context.user_data['custom_quiz']['step'] = 'settings'
+        
+        await update.message.reply_text(f"✅ زمان آزمون روی {time_limit} دقیقه تنظیم شد")
+        await show_initial_settings_from_message(update, context)
+        
+    except ValueError:
+        await update.message.reply_text("❌ لطفاً یک عدد معتبر وارد کنید:")
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """مدیریت پیام‌های متنی"""
     if update.message.contact:
@@ -1045,6 +1045,24 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif quiz_data['step'] == 'adding_more_topics':
             await handle_additional_topic_selection(update, context)
             return
+    
+    # پردازش تعداد سوالات
+    if (update.message.text and 
+        'custom_quiz' in context.user_data and
+        context.user_data['custom_quiz']['step'] == 'waiting_for_count'):
+        
+        await process_question_count_input(update, context)
+        return
+    
+    # پردازش زمان آزمون
+    if (update.message.text and 
+        'custom_quiz' in context.user_data and
+        context.user_data['custom_quiz']['step'] == 'waiting_for_time'):
+        
+        await process_time_limit_input(update, context)
+        return
+    
+    # بقیه کدهای handle_message...
     
     # بررسی اول: اگر ادمین در حال افزودن سوال به بانک است و متن انتخاب مبحث است
     if (update.effective_user.id == ADMIN_ID and 
