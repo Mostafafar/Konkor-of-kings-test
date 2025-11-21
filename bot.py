@@ -250,6 +250,7 @@ def get_active_quizzes():
     return execute_query(
         "SELECT id, title, description, time_limit, created_by_admin FROM quizzes WHERE is_active = TRUE ORDER BY id"
     )
+
 # توابع مباحث
 def get_all_topics():
     return execute_query("SELECT id, name, description FROM topics WHERE is_active = TRUE ORDER BY name")
@@ -259,6 +260,7 @@ def get_topic_by_id(topic_id: int):
 
 def get_topic_by_name(name: str):
     return execute_query("SELECT id, name, description FROM topics WHERE name = %s AND is_active = TRUE", (name,))
+
 def get_questions_count_by_topic(topic_id: int):
     """دریافت تعداد سوالات موجود برای یک مبحث"""
     return execute_query(
@@ -577,7 +579,6 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await generate_custom_quiz(update, context)
     elif data == "admin_add_topic":
         await admin_add_topic(update, context)
-    # اضافه کردن در handle_callback
     elif data == "set_count_menu":
         await set_count_menu(update, context)
     elif data == "set_time_menu":
@@ -586,18 +587,28 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await set_difficulty_menu(update, context)
     elif data == "clear_custom_topics":
         await clear_custom_topics(update, context)
+    elif data == "back_to_admin_panel":
+        await show_admin_panel(update, context)
+    elif data == "back_to_quiz_list":
+        await show_quiz_list(update, context)
+    elif data == "back_to_custom_quiz":
+        await start_custom_quiz_creation(update, context)
 
 # ساخت آزمون سفارشی
 async def start_custom_quiz_creation(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['custom_quiz'] = {
         'step': 'select_topics',
         'selected_topics': [],
-        'settings': {}
+        'settings': {
+            'count': 20,
+            'time_limit': 30,
+            'difficulty': 'all'
+        }
     }
     
     keyboard = [
         [InlineKeyboardButton("🔍 انتخاب مباحث", switch_inline_query_current_chat="")],
-        [InlineKeyboardButton("🔙 بازگشت", callback_data="main_menu")]
+        [InlineKeyboardButton("🔙 بازگشت به منوی اصلی", callback_data="main_menu")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
@@ -607,6 +618,7 @@ async def start_custom_quiz_creation(update: Update, context: ContextTypes.DEFAU
         "روی دکمه زیر کلیک کنید و مباحث مورد نظرتان را جستجو و انتخاب کنید:",
         reply_markup=reply_markup
     )
+
 async def handle_custom_quiz_topic_selection(update: Update, context: ContextTypes.DEFAULT_TYPE, topic_id: int):
     """مدیریت انتخاب مبحث در آزمون سفارشی"""
     try:
@@ -662,7 +674,7 @@ async def handle_custom_quiz_topic_selection(update: Update, context: ContextTyp
             [InlineKeyboardButton("⚙️ تنظیمات آزمون", callback_data="custom_quiz_settings")],
             [InlineKeyboardButton("🚀 شروع آزمون", callback_data="generate_custom_quiz")],
             [InlineKeyboardButton("🗑️ حذف همه مباحث", callback_data="clear_custom_topics")],
-            [InlineKeyboardButton("🔙 بازگشت", callback_data="main_menu")]
+            [InlineKeyboardButton("🔙 بازگشت به منوی اصلی", callback_data="main_menu")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
@@ -681,6 +693,7 @@ async def handle_custom_quiz_topic_selection(update: Update, context: ContextTyp
     except Exception as e:
         logger.error(f"Error in custom quiz topic selection: {e}")
         await update.message.reply_text("❌ خطا در پردازش انتخاب مبحث!")
+
 async def handle_custom_quiz_topic_selection_from_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """پردازش انتخاب مبحث از طریق پیام برای آزمون سفارشی"""
     try:
@@ -707,6 +720,7 @@ async def handle_custom_quiz_topic_selection_from_message(update: Update, contex
     except Exception as e:
         logger.error(f"❌ CUSTOM_QUIZ_TOPIC: Error: {e}")
         await update.message.reply_text("❌ خطا در پردازش انتخاب مبحث! لطفاً دوباره تلاش کنید.")
+
 async def set_count_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """منوی انتخاب تعداد سوالات"""
     # محاسبه حداکثر سوالات قابل دسترس
@@ -721,7 +735,7 @@ async def set_count_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if count <= total_available:
             keyboard.append([InlineKeyboardButton(f"{count} سوال", callback_data=f"set_count_{count}")])
     
-    keyboard.append([InlineKeyboardButton("🔙 بازگشت", callback_data="custom_quiz_settings")])
+    keyboard.append([InlineKeyboardButton("🔙 بازگشت به تنظیمات", callback_data="custom_quiz_settings")])
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     await update.callback_query.edit_message_text(
@@ -739,7 +753,7 @@ async def set_time_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("۴۵ دقیقه", callback_data="set_time_45")],
         [InlineKeyboardButton("۶۰ دقیقه", callback_data="set_time_60")],
         [InlineKeyboardButton("۹۰ دقیقه", callback_data="set_time_90")],
-        [InlineKeyboardButton("🔙 بازگشت", callback_data="custom_quiz_settings")]
+        [InlineKeyboardButton("🔙 بازگشت به تنظیمات", callback_data="custom_quiz_settings")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
@@ -755,7 +769,7 @@ async def set_difficulty_menu(update: Update, context: ContextTypes.DEFAULT_TYPE
         [InlineKeyboardButton("🟢 آسان", callback_data="set_difficulty_easy")],
         [InlineKeyboardButton("🟡 متوسط", callback_data="set_difficulty_medium")],
         [InlineKeyboardButton("🔴 سخت", callback_data="set_difficulty_hard")],
-        [InlineKeyboardButton("🔙 بازگشت", callback_data="custom_quiz_settings")]
+        [InlineKeyboardButton("🔙 بازگشت به تنظیمات", callback_data="custom_quiz_settings")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
@@ -763,6 +777,7 @@ async def set_difficulty_menu(update: Update, context: ContextTypes.DEFAULT_TYPE
         "🎯 انتخاب سطح سختی\n\nلطفاً سطح مورد نظر را انتخاب کنید:",
         reply_markup=reply_markup
     )
+
 async def clear_custom_topics(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """پاک کردن همه مباحث انتخاب شده"""
     if 'custom_quiz' in context.user_data:
@@ -770,7 +785,7 @@ async def clear_custom_topics(update: Update, context: ContextTypes.DEFAULT_TYPE
     
     keyboard = [
         [InlineKeyboardButton("➕ افزودن مبحث", switch_inline_query_current_chat="مبحث ")],
-        [InlineKeyboardButton("🔙 بازگشت", callback_data="create_custom_quiz")]
+        [InlineKeyboardButton("🔙 بازگشت به منوی اصلی", callback_data="main_menu")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
@@ -794,9 +809,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         await handle_custom_quiz_topic_selection_from_message(update, context)
         return
-    
-    # بقیه کدهای موجود...
-    # [کدهای قبلی بدون تغییر]
     
     # بررسی اول: اگر ادمین در حال افزودن سوال به بانک است و متن انتخاب مبحث است
     if (update.effective_user.id == ADMIN_ID and 
@@ -869,6 +881,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # برای کاربران عادی
     if update.message.text:
         await update.message.reply_text("لطفاً از منوی ربات استفاده کنید.")
+
 async def handle_topic_selection_from_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """پردازش انتخاب مبحث از طریق پیام"""
     try:
@@ -876,7 +889,6 @@ async def handle_topic_selection_from_message(update: Update, context: ContextTy
         logger.info(f"🎯 TOPIC_SELECTION: Processing topic selection: {text}")
         
         # استخراج نام مبحث از متن
-        # متن به این شکل است: "مبحث انتخاب شده: شروع الکتروشیمی و مفهوم اکسنده و کاهنده"
         topic_name = text.replace("مبحث انتخاب شده:", "").strip()
         
         # پیدا کردن مبحث در دیتابیس
@@ -912,10 +924,6 @@ async def handle_topic_selection_from_message(update: Update, context: ContextTy
         logger.error(f"❌ TOPIC_SELECTION: Error: {e}")
         await update.message.reply_text("❌ خطا در پردازش انتخاب مبحث! لطفاً دوباره تلاش کنید.")
 
-
-
-
-
 async def debug_context(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """تابع دیباگ برای بررسی وضعیت context"""
     user_id = update.effective_user.id
@@ -934,7 +942,6 @@ async def debug_context(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text=debug_text,
         parse_mode=ParseMode.MARKDOWN
     )
-
 
 async def custom_quiz_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """تنظیمات آزمون سفارشی"""
@@ -972,7 +979,7 @@ async def custom_quiz_settings(update: Update, context: ContextTypes.DEFAULT_TYP
         [InlineKeyboardButton(f"🎯 سطح: {difficulty}", callback_data="set_difficulty_menu")],
         [InlineKeyboardButton("➕ افزودن مبحث دیگر", switch_inline_query_current_chat="مبحث ")],
         [InlineKeyboardButton("🚀 شروع آزمون", callback_data="generate_custom_quiz")],
-        [InlineKeyboardButton("🔙 بازگشت", callback_data="create_custom_quiz")]
+        [InlineKeyboardButton("🔙 بازگشت به آزمون سفارشی", callback_data="create_custom_quiz")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
@@ -997,7 +1004,7 @@ async def generate_custom_quiz(update: Update, context: ContextTypes.DEFAULT_TYP
         if 'custom_quiz' not in context.user_data or not context.user_data['custom_quiz']['selected_topics']:
             await update.callback_query.edit_message_text(
                 "❌ لطفاً حداقل یک مبحث انتخاب کنید!",
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="create_custom_quiz")]])
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت به آزمون سفارشی", callback_data="create_custom_quiz")]])
             )
             return
         
@@ -1013,7 +1020,7 @@ async def generate_custom_quiz(update: Update, context: ContextTypes.DEFAULT_TYP
         if not questions:
             await update.callback_query.edit_message_text(
                 "❌ هیچ سوالی برای مباحث انتخاب شده یافت نشد!",
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="create_custom_quiz")]])
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت به آزمون سفارشی", callback_data="create_custom_quiz")]])
             )
             return
         
@@ -1027,7 +1034,7 @@ async def generate_custom_quiz(update: Update, context: ContextTypes.DEFAULT_TYP
         if not quiz_id:
             await update.callback_query.edit_message_text(
                 "❌ خطا در ایجاد آزمون!",
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="main_menu")]])
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت به منوی اصلی", callback_data="main_menu")]])
             )
             return
         
@@ -1046,8 +1053,9 @@ async def generate_custom_quiz(update: Update, context: ContextTypes.DEFAULT_TYP
         logger.error(f"Error generating custom quiz: {e}")
         await update.callback_query.edit_message_text(
             "❌ خطا در ایجاد آزمون! لطفاً دوباره تلاش کنید.",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="main_menu")]])
-    )
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت به منوی اصلی", callback_data="main_menu")]])
+        )
+
 # توابع آزمون
 async def start_quiz(update: Update, context: ContextTypes.DEFAULT_TYPE, quiz_id: int):
     user_id = update.effective_user.id
@@ -1398,14 +1406,16 @@ async def admin_quiz_rankings(update: Update, context: ContextTypes.DEFAULT_TYPE
     quizzes = execute_query("SELECT id, title FROM quizzes WHERE created_by_admin = TRUE ORDER BY created_at DESC")
     
     if not quizzes:
-        await update.callback_query.edit_message_text("⚠️ هیچ آزمون ادمینی یافت نشد.")
+        keyboard = [[InlineKeyboardButton("🔙 بازگشت به پنل ادمین", callback_data="admin_panel")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.callback_query.edit_message_text("⚠️ هیچ آزمون ادمینی یافت نشد.", reply_markup=reply_markup)
         return
     
     keyboard = []
     for quiz_id, title in quizzes:
         keyboard.append([InlineKeyboardButton(f"📊 {title}", callback_data=f"quiz_ranking_{quiz_id}")])
     
-    keyboard.append([InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")])
+    keyboard.append([InlineKeyboardButton("🔙 بازگشت به پنل ادمین", callback_data="admin_panel")])
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     await update.callback_query.edit_message_text("🏆 انتخاب آزمون برای مشاهده رتبه‌بندی:", reply_markup=reply_markup)
@@ -1414,7 +1424,9 @@ async def show_quiz_rankings(update: Update, context: ContextTypes.DEFAULT_TYPE,
     rankings = get_quiz_rankings(quiz_id)
     
     if not rankings:
-        await update.callback_query.edit_message_text("⚠️ هیچ نتیجه‌ای برای این آزمون یافت نشد.")
+        keyboard = [[InlineKeyboardButton("🔙 بازگشت به رتبه‌بندی", callback_data="admin_quiz_rankings")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.callback_query.edit_message_text("⚠️ هیچ نتیجه‌ای برای این آزمون یافت نشد.", reply_markup=reply_markup)
         return
     
     text = f"🏆 رتبه‌بندی آزمون:\n\n"
@@ -1426,7 +1438,7 @@ async def show_quiz_rankings(update: Update, context: ContextTypes.DEFAULT_TYPE,
     if len(rankings) > 20:
         text += f"📊 و {len(rankings) - 20} شرکت‌کننده دیگر..."
     
-    keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data="admin_quiz_rankings")]]
+    keyboard = [[InlineKeyboardButton("🔙 بازگشت به رتبه‌بندی", callback_data="admin_quiz_rankings")]]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     await update.callback_query.edit_message_text(text, reply_markup=reply_markup)
@@ -1443,8 +1455,12 @@ async def admin_create_quiz(update: Update, context: ContextTypes.DEFAULT_TYPE):
         'current_step': 'title'
     }
     
+    keyboard = [[InlineKeyboardButton("🔙 بازگشت به پنل ادمین", callback_data="admin_panel")]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
     await update.callback_query.edit_message_text(
-        "📝 ایجاد آزمون جدید:\n\nلطفاً عنوان آزمون را ارسال کنید:"
+        "📝 ایجاد آزمون جدید:\n\nلطفاً عنوان آزمون را ارسال کنید:",
+        reply_markup=reply_markup
     )
 
 async def admin_manage_quizzes(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1455,7 +1471,7 @@ async def admin_manage_quizzes(update: Update, context: ContextTypes.DEFAULT_TYP
     quizzes = execute_query("SELECT id, title, is_active FROM quizzes ORDER BY created_at DESC")
     
     if not quizzes:
-        keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")]]
+        keyboard = [[InlineKeyboardButton("🔙 بازگشت به پنل ادمین", callback_data="admin_panel")]]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await update.callback_query.edit_message_text(
             "⚠️ هیچ آزمونی یافت نشد.",
@@ -1477,7 +1493,7 @@ async def admin_manage_quizzes(update: Update, context: ContextTypes.DEFAULT_TYP
             callback_data=f"toggle_quiz_{quiz_id}"
         )])
     
-    keyboard.append([InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")])
+    keyboard.append([InlineKeyboardButton("🔙 بازگشت به پنل ادمین", callback_data="admin_panel")])
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     await update.callback_query.edit_message_text(
@@ -1502,7 +1518,7 @@ async def admin_view_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
     users = get_all_users()
     
     if not users:
-        keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")]]
+        keyboard = [[InlineKeyboardButton("🔙 بازگشت به پنل ادمین", callback_data="admin_panel")]]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await update.callback_query.edit_message_text(
             "⚠️ هیچ کاربری یافت نشد.",
@@ -1526,7 +1542,7 @@ async def admin_view_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(users) > 20:
         text += f"\n📊 و {len(users) - 20} کاربر دیگر..."
     
-    keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")]]
+    keyboard = [[InlineKeyboardButton("🔙 بازگشت به پنل ادمین", callback_data="admin_panel")]]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     await update.callback_query.edit_message_text(
@@ -1542,7 +1558,7 @@ async def admin_view_results(update: Update, context: ContextTypes.DEFAULT_TYPE)
     results = get_all_results()
     
     if not results:
-        keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")]]
+        keyboard = [[InlineKeyboardButton("🔙 بازگشت به پنل ادمین", callback_data="admin_panel")]]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await update.callback_query.edit_message_text(
             "⚠️ هیچ نتیجه‌ای یافت نشد.",
@@ -1564,7 +1580,7 @@ async def admin_view_results(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if len(results) > 15:
         text += f"\n📊 و {len(results) - 15} نتیجه دیگر..."
     
-    keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")]]
+    keyboard = [[InlineKeyboardButton("🔙 بازگشت به پنل ادمین", callback_data="admin_panel")]]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     await update.callback_query.edit_message_text(
@@ -1579,7 +1595,7 @@ async def admin_broadcast_message(update: Update, context: ContextTypes.DEFAULT_
     
     context.user_data['admin_action'] = 'broadcasting'
     
-    keyboard = [[InlineKeyboardButton("🔙 لغو", callback_data="admin_panel")]]
+    keyboard = [[InlineKeyboardButton("🔙 بازگشت به پنل ادمین", callback_data="admin_panel")]]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     await update.callback_query.edit_message_text(
@@ -1718,8 +1734,6 @@ async def handle_contact(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await show_main_menu(update, context)
 
-
-
 async def handle_admin_photos(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """پردازش عکس‌های ارسالی ادمین"""
     if update.effective_user.id != ADMIN_ID:
@@ -1779,11 +1793,6 @@ async def handle_admin_photos(update: Update, context: ContextTypes.DEFAULT_TYPE
             await update.message.reply_text("❌ خطا در ذخیره عکس! لطفاً دوباره تلاش کنید.")
         
         return
-    
-    # بقیه کدهای مربوط به حالت‌های دیگر...
-    logger.info("📸 ADMIN_PHOTO: Not in question bank flow, ignoring photo")
-    
-    # بقیه کدهای مربوط به حالت‌های دیگر...
     
     # حالت عادی برای ایجاد آزمون
     if 'admin_action' not in context.user_data or context.user_data['admin_action'] != 'adding_questions':
@@ -1885,9 +1894,8 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         return
     
-    # بقیه کدهای مربوط به حالت‌های دیگر...
-    
     # حالت عادی برای ایجاد آزمون
+    action = context.user_data.get('admin_action')
     quiz_data = context.user_data.get('quiz_data', {})
     
     if action == 'creating_quiz':
@@ -1934,7 +1942,7 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     
                     keyboard = [
                         [InlineKeyboardButton("✅ بله، افزودن سوالات", callback_data="confirm_add_questions")],
-                        [InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")]
+                        [InlineKeyboardButton("🔙 بازگشت به پنل ادمین", callback_data="admin_panel")]
                     ]
                     reply_markup = InlineKeyboardMarkup(keyboard)
                     
@@ -2041,7 +2049,7 @@ async def admin_add_question_to_bank(update: Update, context: ContextTypes.DEFAU
     
     keyboard = [
         [InlineKeyboardButton("🔍 انتخاب مبحث", switch_inline_query_current_chat="مبحث ")],
-        [InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")]
+        [InlineKeyboardButton("🔙 بازگشت به پنل ادمین", callback_data="admin_panel")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
@@ -2055,6 +2063,7 @@ async def admin_add_question_to_bank(update: Update, context: ContextTypes.DEFAU
     )
     
     logger.info("🔧 ADMIN: admin_add_question_to_bank completed")
+
 async def inline_query_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.inline_query.query.strip().lower()
     user_id = update.effective_user.id
@@ -2065,7 +2074,6 @@ async def inline_query_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     is_admin = user_id == ADMIN_ID
     
     # برای همه کاربران (ادمین و کاربران عادی) از یک فرمت استفاده می‌کنیم
-    # چون ChosenInlineResultHandler کار نمی‌کند
     topics = get_all_topics()
     logger.info(f"🔍 INLINE_QUERY: Found {len(topics)} topics")
     
@@ -2090,7 +2098,6 @@ async def inline_query_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     
     logger.info(f"🔍 INLINE_QUERY: Returning {len(results)} results")
     await update.inline_query.answer(results, cache_time=1)
-
 
 async def handle_admin_question_bank_flow(update: Update, context: ContextTypes.DEFAULT_TYPE, result_id: str):
     """مدیریت جریان افزودن سوال به بانک برای ادمین"""
@@ -2153,6 +2160,7 @@ async def handle_admin_question_bank_flow(update: Update, context: ContextTypes.
             chat_id=ADMIN_ID,
             text="❌ خطای غیرمنتظره در پردازش انتخاب مبحث! لطفاً دوباره تلاش کنید."
         )
+
 async def admin_manage_topics(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """مدیریت مباحث"""
     if update.effective_user.id != ADMIN_ID:
@@ -2163,7 +2171,7 @@ async def admin_manage_topics(update: Update, context: ContextTypes.DEFAULT_TYPE
     if not topics:
         keyboard = [
             [InlineKeyboardButton("➕ افزودن مبحث جدید", callback_data="admin_add_topic")],
-            [InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")]
+            [InlineKeyboardButton("🔙 بازگشت به پنل ادمین", callback_data="admin_panel")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await update.callback_query.edit_message_text(
@@ -2182,7 +2190,7 @@ async def admin_manage_topics(update: Update, context: ContextTypes.DEFAULT_TYPE
     
     keyboard = [
         [InlineKeyboardButton("➕ افزودن مبحث جدید", callback_data="admin_add_topic")],
-        [InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")]
+        [InlineKeyboardButton("🔙 بازگشت به پنل ادمین", callback_data="admin_panel")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
@@ -2196,16 +2204,20 @@ async def admin_add_topic(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['admin_action'] = 'adding_topic'
     context.user_data['topic_data'] = {'step': 'name'}
     
+    keyboard = [[InlineKeyboardButton("🔙 بازگشت به پنل ادمین", callback_data="admin_panel")]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
     await update.callback_query.edit_message_text(
         "📚 افزودن مبحث جدید:\n\n"
-        "لطفاً نام مبحث را ارسال کنید:"
+        "لطفاً نام مبحث را ارسال کنید:",
+        reply_markup=reply_markup
     )
 
 async def show_quiz_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     quizzes = get_active_quizzes()
     
     if not quizzes:
-        keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data="main_menu")]]
+        keyboard = [[InlineKeyboardButton("🔙 بازگشت به منوی اصلی", callback_data="main_menu")]]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await update.callback_query.edit_message_text("⚠️ در حال حاضر هیچ آزمون فعالی وجود ندارد.", reply_markup=reply_markup)
         return
@@ -2217,7 +2229,7 @@ async def show_quiz_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
         button_text = f"⏱ {time_limit} دقیقه - {title}{admin_icon}"
         keyboard.append([InlineKeyboardButton(button_text, callback_data=f"quiz_{quiz_id}")])
     
-    keyboard.append([InlineKeyboardButton("🔙 بازگشت", callback_data="main_menu")])
+    keyboard.append([InlineKeyboardButton("🔙 بازگشت به منوی اصلی", callback_data="main_menu")])
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     text = "📋 لیست آزمون‌های فعال:\n\n"
@@ -2241,7 +2253,9 @@ async def show_my_results(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ''', (user_id,))
     
     if not results:
-        await update.callback_query.edit_message_text("📭 شما هنوز هیچ آزمونی نداده‌اید.")
+        keyboard = [[InlineKeyboardButton("🔙 بازگشت به منوی اصلی", callback_data="main_menu")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.callback_query.edit_message_text("📭 شما هنوز هیچ آزمونی نداده‌اید.", reply_markup=reply_markup)
         return
     
     result_text = "📋 نتایج آزمون‌های شما:\n\n"
@@ -2258,7 +2272,7 @@ async def show_my_results(update: Update, context: ContextTypes.DEFAULT_TYPE):
         result_text += f"   📈 {score:.1f}% | ⏱ {time_str}{rank_text}\n"
         result_text += f"   📅 {completed_date}\n\n"
     
-    keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data="main_menu")]]
+    keyboard = [[InlineKeyboardButton("🔙 بازگشت به منوی اصلی", callback_data="main_menu")]]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     await update.callback_query.edit_message_text(result_text, reply_markup=reply_markup)
@@ -2277,7 +2291,7 @@ async def show_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "موفق باشید! 🎯"
     )
     
-    keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data="main_menu")]]
+    keyboard = [[InlineKeyboardButton("🔙 بازگشت به منوی اصلی", callback_data="main_menu")]]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.callback_query.edit_message_text(help_text, reply_markup=reply_markup)
 
@@ -2375,8 +2389,6 @@ async def quiz_timeout(context: ContextTypes.DEFAULT_TYPE):
         except:
             pass
 
-
-
 # توابع کمکی
 def create_quiz(title: str, description: str, time_limit: int, by_admin: bool = True):
     result = execute_query('''
@@ -2384,6 +2396,7 @@ def create_quiz(title: str, description: str, time_limit: int, by_admin: bool = 
         VALUES (%s, %s, %s, TRUE, %s) RETURNING id
     ''', (title, description, time_limit, by_admin), return_id=True)
     return result[0][0] if result else None
+
 def add_question(quiz_id: int, question_image: str, correct_answer: int, question_order: int):
     return execute_query('''
         INSERT INTO questions (quiz_id, question_image, correct_answer, question_order)
@@ -2440,7 +2453,6 @@ def main():
     # همه هندلرها را اضافه کنید
     application.add_handler(CommandHandler("start", start))
     application.add_handler(InlineQueryHandler(inline_query_handler))
-     # این خط مهم است
     application.add_handler(MessageHandler(filters.CONTACT, handle_contact))
     application.add_handler(MessageHandler(filters.PHOTO, handle_admin_photos))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
@@ -2451,5 +2463,6 @@ def main():
     
     print("🤖 ربات در حال اجرا است...")
     application.run_polling()
+
 if __name__ == "__main__":
     main()
