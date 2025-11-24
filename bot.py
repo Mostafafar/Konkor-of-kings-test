@@ -2796,14 +2796,13 @@ async def admin_add_question_to_bank(update: Update, context: ContextTypes.DEFAU
     
     logger.info("🔧 ADMIN: Starting admin_add_question_to_bank")
     
-    # پاک کردن state قبلی
-    context.user_data.pop('admin_action', None)
-    context.user_data.pop('question_bank_data', None)
+    # پاک کردن contextهای قبلی و تنظیم state جدید
+    clear_admin_context(context)
     
-    # تنظیم state جدید
     context.user_data['admin_action'] = 'adding_question_to_bank'
     context.user_data['question_bank_data'] = {
-        'step': 'selecting_topic'
+        'step': 'selecting_topic',
+        'flow_type': 'question_bank'  # اضافه کردن شناسه برای تشخیص جریان
     }
     
     logger.info(f"🔧 ADMIN: Context data set - admin_action: {context.user_data.get('admin_action')}")
