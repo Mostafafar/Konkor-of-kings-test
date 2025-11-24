@@ -1781,10 +1781,14 @@ async def show_quiz_rankings(update: Update, context: ContextTypes.DEFAULT_TYPE,
     await update.callback_query.edit_message_text(text, reply_markup=reply_markup)
 
 # توابع مدیریت ادمین
+
 async def admin_create_quiz(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """شروع فرآیند ایجاد آزمون جدید به سبک سفارشی"""
     if update.effective_user.id != ADMIN_ID:
         return
+    
+    # پاک کردن contextهای قبلی
+    clear_admin_context(context)
     
     context.user_data['admin_quiz'] = {
         'step': 'select_first_topic',
