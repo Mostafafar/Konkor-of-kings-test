@@ -2923,7 +2923,7 @@ async def handle_admin_question_bank_flow(update: Update, context: ContextTypes.
         )
 
 async def admin_manage_topics(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """مدیریت مباحث"""
+    """مدیریت مباحث با قابلیت ویرایش"""
     if update.effective_user.id != ADMIN_ID:
         return
     
@@ -2943,19 +2943,114 @@ async def admin_manage_topics(update: Update, context: ContextTypes.DEFAULT_TYPE
     
     text = "📚 مدیریت مباحث:\n\n"
     for topic in topics:
-        topic_id, name, description = topic
-        text += f"• {name}\n"
+        topic_id, name, description, is_active = topic
+        status = "✅ فعال" if is_active else "❌ غیرفعال"
+        text += f"• {name} ({status})\n"
         if description:
             text += f"  📝 {description}\n"
         text += f"  🆔 کد: {topic_id}\n\n"
     
     keyboard = [
         [InlineKeyboardButton("➕ افزودن مبحث جدید", callback_data="admin_add_topic")],
+        [InlineKeyboardButton("✏️ ویرایش مبحث", callback_data="admin_edit_topic")],
+        [InlineKeyboardButton("❌ حذف مبحث", callback_data="admin_delete_topic")],
+        [InlineKeyboardButton("🔍 مشاهده سوالات مبحث", callback_data="admin_view_topic_questions")],
         [InlineKeyboardButton("🔙 بازگشت به پنل ادمین", callback_data="admin_panel")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     await update.callback_query.edit_message_text(text, reply_markup=reply_markup)
+async def admin_edit_topic(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """شروع فرآیند ویرایش مبحث"""
+    if update.effective_user.id != ADMIN_ID:
+        return
+    
+    topics = get_all_topics()
+    
+    if not topics:
+        await update.callback_query.answer("⚠️ هیچ مبحثی برای ویرایش وجود ندارد!")
+        return
+    
+    keyboard = []
+    for topic in topics:
+        topic_id, name, description, is_active = topic
+        status_icon = "✅" if is_active else "❌"
+        keyboard.append([InlineKeyboardButton(
+            f"{status_icon} {name}", 
+            callback_data=f"edit_topic_{topic_id}"
+        )])
+    
+    keyboard.append([InlineKeyboardButton("🔙 بازگشت به مدیریت مباحث", callback_data="admin_manage_topics")])
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.callback_query.edit_message_text(
+        "✏️ ویرایش مبحث:\n\n"
+        "لطفاً مبحث مورد نظر برای ویرایش را انتخاب کنید:",
+        reply_markup=reply_markup
+        )
+async def admin_delete_topic(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """شروع فرآیند حذف مبحث"""
+    if update.effective_user.id != ADMIN_ID:
+        return
+    
+    topics = get_all_topics()
+    
+    if not topics:
+        await update.callback_query.answer("⚠️ هیچ مبحثی برای حذف وجود ندارد!")
+        return
+    
+    keyboard = []
+    for topic in topics:
+        topic_id, name, description, is_active = topic
+        # بررسی آیا مبحث دارای سوال است یا نه
+        questions_count = get_questions_count_by_topic(topic_id)
+        has_questions = questions_count[0][0] > 0 if questions_count else False
+        warning_icon = "⚠️" if has_questions else ""
+        
+        keyboard.append([InlineKeyboardButton(
+            f"{warning_icon} {name}", 
+            callback_data=f"delete_topic_{topic_id}"
+        )])
+    
+    keyboard.append([InlineKeyboardButton("🔙 بازگشت به مدیریت مباحث", callback_data="admin_manage_topics")])
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.callback_query.edit_message_text(
+        "❌ حذف مبحث:\n\n"
+        "⚠️ توجه: حذف مباحثی که دارای سوال هستند ممکن است باعث مشکلات در آزمون‌ها شود!\n\n"
+        "لطفاً مبحث مورد نظر برای حذف را انتخاب کنید:",
+        reply_markup=reply_markup
+    )
+async def admin_view_topic_questions(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """مشاهده سوالات یک مبحث"""
+    if update.effective_user.id != ADMIN_ID:
+        return
+    
+    topics = get_all_topics()
+    
+    if not topics:
+        await update.callback_query.answer("⚠️ هیچ مبحثی وجود ندارد!")
+        return
+    
+    keyboard = []
+    for topic in topics:
+        topic_id, name, description, is_active = topic
+        questions_count = get_questions_count_by_topic(topic_id)
+        count = questions_count[0][0] if questions_count else 0
+        
+        keyboard.append([InlineKeyboardButton(
+            f"📚 {name} ({count} سوال)", 
+            callback_data=f"view_topic_questions_{topic_id}"
+        )])
+    
+    keyboard.append([InlineKeyboardButton("🔙 بازگشت به مدیریت مباحث", callback_data="admin_manage_topics")])
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.callback_query.edit_message_text(
+        "🔍 مشاهده سوالات مبحث:\n\n"
+        "لطفاً مبحث مورد نظر را انتخاب کنید:",
+        reply_markup=reply_markup
+    )
 
 async def admin_add_topic(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """افزودن مبحث جدید"""
