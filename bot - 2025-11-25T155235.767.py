@@ -3073,6 +3073,252 @@ async def admin_view_topic_questions(update: Update, context: ContextTypes.DEFAU
         "لطفاً مبحث مورد نظر را انتخاب کنید:",
         reply_markup=reply_markup
     )
+async def start_topic_editing(update: Update, context: ContextTypes.DEFAULT_TYPE, topic_id: int):
+    """شروع ویرایش مبحث"""
+    topic_info = get_topic_by_id(topic_id)
+    if not topic_info:
+        await update.callback_query.answer("❌ مبحث یافت نشد!")
+        return
+    
+    topic_id, name, description, is_active = topic_info[0]
+    
+    context.user_data['editing_topic'] = {
+        'topic_id': topic_id,
+        'current_name': name,
+        'current_description': description or '',
+        'current_status': is_active,
+        'step': 'editing'
+    }
+    
+    keyboard = [
+        [InlineKeyboardButton("✏️ ویرایش نام", callback_data="edit_topic_name")],
+        [InlineKeyboardButton("📝 ویرایش توضیحات", callback_data="edit_topic_description")],
+        [InlineKeyboardButton("🔄 تغییر وضعیت فعال/غیرفعال", callback_data=f"toggle_topic_status_{topic_id}")],
+        [InlineKeyboardButton("🔙 بازگشت به ویرایش مباحث", callback_data="admin_edit_topic")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    status_text = "✅ فعال" if is_active else "❌ غیرفعال"
+    
+    await update.callback_query.edit_message_text(
+        f"✏️ ویرایش مبحث:\n\n"
+        f"📌 نام فعلی: {name}\n"
+        f"📝 توضیحات: {description or 'ندارد'}\n"
+        f"📊 وضعیت: {status_text}\n\n"
+        f"لطفاً عملیات مورد نظر را انتخاب کنید:",
+        reply_markup=reply_markup
+    )
+
+async def edit_topic_name_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """درخواست نام جدید برای مبحث"""
+    context.user_data['editing_topic']['step'] = 'waiting_for_new_name'
+    
+    keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data="back_to_topic_editing")]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.callback_query.edit_message_text(
+        "✏️ ویرایش نام مبحث:\n\n"
+        "لطفاً نام جدید مبحث را وارد کنید:",
+        reply_markup=reply_markup
+    )
+
+async def edit_topic_description_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """درخواست توضیحات جدید برای مبحث"""
+    context.user_data['editing_topic']['step'] = 'waiting_for_new_description'
+    
+    keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data="back_to_topic_editing")]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.callback_query.edit_message_text(
+        "📝 ویرایش توضیحات مبحث:\n\n"
+        "لطفاً توضیحات جدید مبحث را وارد کنید:\n\n"
+        "💡 می‌توانید 'حذف' را وارد کنید تا توضیحات حذف شود.",
+        reply_markup=reply_markup
+    )
+async def confirm_topic_deletion(update: Update, context: ContextTypes.DEFAULT_TYPE, topic_id: int):
+    """تأیید حذف مبحث"""
+    topic_info = get_topic_by_id(topic_id)
+    if not topic_info:
+        await update.callback_query.answer("❌ مبحث یافت نشد!")
+        return
+    
+    topic_id, name, description, is_active = topic_info[0]
+    
+    # بررسی تعداد سوالات
+    questions_count = get_questions_count_by_topic(topic_id)
+    question_count = questions_count[0][0] if questions_count else 0
+    
+    warning_text = ""
+    if question_count > 0:
+        warning_text = f"\n⚠️ هشدار: این مبحث دارای {question_count} سوال است!\nحذف آن ممکن است باعث مشکلات در آزمون‌ها شود."
+    
+    keyboard = [
+        [InlineKeyboardButton("✅ بله، حذف کن", callback_data=f"confirm_delete_topic_{topic_id}")],
+        [InlineKeyboardButton("❌ خیر، انصراف", callback_data="admin_delete_topic")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.callback_query.edit_message_text(
+        f"❌ تأیید حذف مبحث:\n\n"
+        f"📌 نام: {name}\n"
+        f"📝 توضیحات: {description or 'ندارد'}\n"
+        f"📊 تعداد سوالات: {question_count}"
+        f"{warning_text}\n\n"
+        f"آیا از حذف این مبحث اطمینان دارید؟",
+        reply_markup=reply_markup
+    )
+
+async def delete_topic(update: Update, context: ContextTypes.DEFAULT_TYPE, topic_id: int):
+    """حذف نهایی مبحث"""
+    topic_info = get_topic_by_id(topic_id)
+    if not topic_info:
+        await update.callback_query.answer("❌ مبحث یافت نشد!")
+        return
+    
+    topic_name = topic_info[0][1]
+    
+    # حذف مبحث از دیتابیس
+    result = execute_query("DELETE FROM topics WHERE id = %s", (topic_id,))
+    
+    if result:
+        await update.callback_query.edit_message_text(
+            f"✅ مبحث '{topic_name}' با موفقیت حذف شد!"
+        )
+    else:
+        await update.callback_query.edit_message_text(
+            f"❌ خطا در حذف مبحث '{topic_name}'!"
+        )
+async def toggle_topic_status(update: Update, context: ContextTypes.DEFAULT_TYPE, topic_id: int):
+    """تغییر وضعیت فعال/غیرفعال مبحث"""
+    topic_info = get_topic_by_id(topic_id)
+    if not topic_info:
+        await update.callback_query.answer("❌ مبحث یافت نشد!")
+        return
+    
+    topic_id, name, description, is_active = topic_info[0]
+    
+    # تغییر وضعیت
+    new_status = not is_active
+    result = execute_query(
+        "UPDATE topics SET is_active = %s WHERE id = %s", 
+        (new_status, topic_id)
+    )
+    
+    if result:
+        status_text = "فعال" if new_status else "غیرفعال"
+        await update.callback_query.answer(f"✅ وضعیت مبحث به {status_text} تغییر یافت")
+        await start_topic_editing(update, context, topic_id)
+    else:
+        await update.callback_query.answer("❌ خطا در تغییر وضعیت!")
+async def show_topic_questions(update: Update, context: ContextTypes.DEFAULT_TYPE, topic_id: int):
+    """نمایش سوالات یک مبحث"""
+    topic_info = get_topic_by_id(topic_id)
+    if not topic_info:
+        await update.callback_query.answer("❌ مبحث یافت نشد!")
+        return
+    
+    topic_id, name, description, is_active = topic_info[0]
+    
+    # دریافت سوالات
+    questions = execute_query(
+        "SELECT id, question_image, correct_answer, is_active FROM question_bank WHERE topic_id = %s ORDER BY id",
+        (topic_id,)
+    )
+    
+    if not questions:
+        keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data="admin_view_topic_questions")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.callback_query.edit_message_text(
+            f"📭 مبحث '{name}' هیچ سوالی ندارد.",
+            reply_markup=reply_markup
+        )
+        return
+    
+    text = f"📚 سوالات مبحث: {name}\n\n"
+    
+    for i, question in enumerate(questions[:10]):  # نمایش 10 سوال اول
+        question_id, question_image, correct_answer, question_active = question
+        status = "✅" if question_active else "❌"
+        text += f"{i+1}. سوال #{question_id} {status}\n"
+        text += f"   ✅ پاسخ صحیح: گزینه {correct_answer}\n"
+        text += f"   📸 فایل: {os.path.basename(question_image)}\n\n"
+    
+    if len(questions) > 10:
+        text += f"📊 و {len(questions) - 10} سوال دیگر...\n\n"
+    
+    text += f"📈 جمع کل: {len(questions)} سوال"
+    
+    keyboard = [
+        [InlineKeyboardButton("🔙 بازگشت به مشاهده مباحث", callback_data="admin_view_topic_questions")],
+        [InlineKeyboardButton("📋 مدیریت سوالات این مبحث", callback_data=f"manage_topic_questions_{topic_id}")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.callback_query.edit_message_text(text, reply_markup=reply_markup)
+async def process_topic_name_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """پردازش نام جدید مبحث"""
+    try:
+        new_name = update.message.text.strip()
+        
+        if len(new_name) < 2:
+            await update.message.reply_text("❌ نام مبحث باید حداقل ۲ کاراکتر باشد!")
+            return
+        
+        topic_data = context.user_data['editing_topic']
+        
+        # بررسی تکراری نبودن نام
+        existing_topic = get_topic_by_name(new_name)
+        if existing_topic and existing_topic[0][0] != topic_data['topic_id']:
+            await update.message.reply_text("❌ مبحثی با این نام از قبل وجود دارد!")
+            return
+        
+        # به‌روزرسانی نام در دیتابیس
+        result = execute_query(
+            "UPDATE topics SET name = %s WHERE id = %s",
+            (new_name, topic_data['topic_id'])
+        )
+        
+        if result:
+            await update.message.reply_text(f"✅ نام مبحث به '{new_name}' تغییر یافت")
+            topic_data['step'] = 'editing'
+            await start_topic_editing(update, context, topic_data['topic_id'])
+        else:
+            await update.message.reply_text("❌ خطا در تغییر نام مبحث!")
+        
+    except Exception as e:
+        logger.error(f"Error processing topic name edit: {e}")
+        await update.message.reply_text("❌ خطا در پردازش نام جدید!")
+
+async def process_topic_description_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """پردازش توضیحات جدید مبحث"""
+    try:
+        new_description = update.message.text.strip()
+        
+        if new_description.lower() == 'حذف':
+            new_description = ""
+        
+        topic_data = context.user_data['editing_topic']
+        
+        # به‌روزرسانی توضیحات در دیتابیس
+        result = execute_query(
+            "UPDATE topics SET description = %s WHERE id = %s",
+            (new_description, topic_data['topic_id'])
+        )
+        
+        if result:
+            if new_description:
+                await update.message.reply_text("✅ توضیحات مبحث به‌روزرسانی شد")
+            else:
+                await update.message.reply_text("✅ توضیحات مبحث حذف شد")
+            
+            topic_data['step'] = 'editing'
+            await start_topic_editing(update, context, topic_data['topic_id'])
+        else:
+            await update.message.reply_text("❌ خطا در تغییر توضیحات مبحث!")
+        
+    except Exception as e:
+        logger.error(f"Error processing topic description edit: {e}")
+        await update.message.reply_text("❌ خطا در پردازش توضیحات جدید!")
 
 async def admin_add_topic(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """افزودن مبحث جدید"""
