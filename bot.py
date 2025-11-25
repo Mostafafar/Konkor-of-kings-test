@@ -668,6 +668,11 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await admin_back_to_settings(update, context)
     elif data == "admin_generate_quiz":
         await admin_generate_quiz(update, context)
+    # در handle_callback اضافه کنید:
+    elif data == "back_to_topic_editing":
+        if 'editing_topic' in context.user_data:
+            topic_id = context.user_data['editing_topic']['topic_id']
+            await start_topic_editing(update, context, topic_id)
 
 # ساخت آزمون سفارشی
 async def start_custom_quiz_creation(update: Update, context: ContextTypes.DEFAULT_TYPE):
