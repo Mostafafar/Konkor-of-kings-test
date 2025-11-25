@@ -551,8 +551,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         topic_id = int(data.split("_")[3])
         await delete_topic(update, context, topic_id)
     elif data.startswith("toggle_topic_status_"):
-    topic_id = int(data.split("_")[3])
-    await toggle_topic_status(update, context, topic_id)
+        topic_id = int(data.split("_")[3])
+        await toggle_topic_status(update, context, topic_id)
     
     # حذف هندلرهای مربوط به دکمه‌های عددی قدیمی
     # elif data.startswith("initial_set_count_"):
