@@ -511,6 +511,28 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     
     # هندلرهای جدید برای تنظیمات اولیه
+    # در تابع handle_callback، این موارد را اضافه کنید:
+    elif data == "admin_edit_topic":
+        await admin_edit_topic(update, context)
+    elif data == "admin_delete_topic":
+        await admin_delete_topic(update, context)
+    elif data == "admin_view_topic_questions":
+        await admin_view_topic_questions(update, context)
+    elif data.startswith("edit_topic_"):
+        topic_id = int(data.split("_")[2])
+        await start_topic_editing(update, context, topic_id)
+    elif data.startswith("delete_topic_"):
+        topic_id = int(data.split("_")[2])
+        await confirm_topic_deletion(update, context, topic_id)
+    elif data.startswith("view_topic_questions_"):
+        topic_id = int(data.split("_")[3])
+        await show_topic_questions(update, context, topic_id)
+    elif data.startswith("confirm_delete_topic_"):
+        topic_id = int(data.split("_")[3])
+        await delete_topic(update, context, topic_id)
+    elif data.startswith("toggle_topic_status_"):
+    topic_id = int(data.split("_")[3])
+    await toggle_topic_status(update, context, topic_id)
     if data == "ask_question_count":
         await ask_for_question_count(update, context)
     elif data == "ask_time_limit":
