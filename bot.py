@@ -512,6 +512,26 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # هندلرهای جدید برای تنظیمات اولیه
     # در تابع handle_callback، این موارد را اضافه کنید:
+    
+    if data == "ask_question_count":
+        await ask_for_question_count(update, context)
+    elif data == "ask_time_limit":
+        await ask_for_time_limit(update, context)
+    elif data == "initial_set_difficulty":
+        await initial_set_difficulty(update, context)
+    elif data.startswith("initial_set_difficulty_"):
+        difficulty = data.split("_")[3]
+        context.user_data['custom_quiz']['settings']['difficulty'] = difficulty
+        await back_to_initial_settings(update, context)
+    elif data == "add_more_topics":
+        await add_more_topics(update, context)
+    elif data == "back_to_initial_settings":
+        await back_to_initial_settings(update, context)
+    
+    
+    
+    # هندلرهای جدید برای تنظیمات اولیه
+    # در تابع handle_callback، این موارد را اضافه کنید:
     elif data == "admin_edit_topic":
         await admin_edit_topic(update, context)
     elif data == "admin_delete_topic":
@@ -533,20 +553,6 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data.startswith("toggle_topic_status_"):
     topic_id = int(data.split("_")[3])
     await toggle_topic_status(update, context, topic_id)
-    if data == "ask_question_count":
-        await ask_for_question_count(update, context)
-    elif data == "ask_time_limit":
-        await ask_for_time_limit(update, context)
-    elif data == "initial_set_difficulty":
-        await initial_set_difficulty(update, context)
-    elif data.startswith("initial_set_difficulty_"):
-        difficulty = data.split("_")[3]
-        context.user_data['custom_quiz']['settings']['difficulty'] = difficulty
-        await back_to_initial_settings(update, context)
-    elif data == "add_more_topics":
-        await add_more_topics(update, context)
-    elif data == "back_to_initial_settings":
-        await back_to_initial_settings(update, context)
     
     # حذف هندلرهای مربوط به دکمه‌های عددی قدیمی
     # elif data.startswith("initial_set_count_"):
