@@ -263,7 +263,7 @@ def get_active_quizzes():
 
 # توابع مباحث
 def get_all_topics():
-    return execute_query("SELECT id, name, description FROM topics WHERE is_active = TRUE ORDER BY name")
+    return execute_query("SELECT id, name, description, is_active FROM topics ORDER BY name")
 
 def get_topic_by_id(topic_id: int):
     return execute_query("SELECT id, name, description FROM topics WHERE id = %s AND is_active = TRUE", (topic_id,))
