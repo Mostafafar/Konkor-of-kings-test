@@ -2890,7 +2890,7 @@ async def inline_query_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     logger.info(f"🔍 INLINE_QUERY: Found {len(topics)} topics")
     
     for topic in topics:
-        topic_id, name, description = topic
+        topic_id, name, description, is_active = topic
         
         # فیلتر کردن بر اساس جستجوی کاربر
         if not query or query in name.lower() or (description and query in description.lower()):
