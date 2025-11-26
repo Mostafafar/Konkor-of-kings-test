@@ -531,6 +531,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # هندلرهای جدید برای تنظیمات اولیه
     # در تابع handle_callback، این موارد را اضافه کنید:
+    elif data == "edit_topic_name":
+        await edit_topic_name_handler(update, context)
+    elif data == "edit_topic_description":
+        await edit_topic_description_handler(update, context)
     elif data == "admin_edit_topic":
         await admin_edit_topic(update, context)
     elif data == "admin_delete_topic":
