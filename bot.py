@@ -1877,7 +1877,7 @@ async def admin_handle_first_topic_selection_from_message(update: Update, contex
             await update.message.reply_text(f"❌ مبحث '{topic_name}' یافت نشد!")
             return
         
-        topic_id, name, description = topic_info[0]
+        topic_id, name, description, is_active = topic_info[0]
         await admin_handle_first_topic_selection(update, context, topic_id)
         
     except Exception as e:
