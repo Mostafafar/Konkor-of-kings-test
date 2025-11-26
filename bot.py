@@ -1119,22 +1119,21 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await process_question_count_input(update, context)
         return
 
-    # در تابع handle_message، این بخش را اضافه کنید:
-# پردازش ویرایش نام مبحث
-     if (update.effective_user.id == ADMIN_ID and 
-         'editing_topic' in context.user_data and
-         context.user_data['editing_topic']['step'] == 'waiting_for_new_name'):
-    
-         await process_topic_name_edit(update, context)
-         return
+    # پردازش ویرایش نام مبحث
+    if (update.effective_user.id == ADMIN_ID and 
+        'editing_topic' in context.user_data and
+        context.user_data['editing_topic']['step'] == 'waiting_for_new_name'):
+        
+        await process_topic_name_edit(update, context)
+        return
 
-# پردازش ویرایش توضیحات مبحث
-     if (update.effective_user.id == ADMIN_ID and 
-         'editing_topic' in context.user_data and
-         context.user_data['editing_topic']['step'] == 'waiting_for_new_description'):
-    
-         await process_topic_description_edit(update, context)
-         return
+    # پردازش ویرایش توضیحات مبحث
+    if (update.effective_user.id == ADMIN_ID and 
+        'editing_topic' in context.user_data and
+        context.user_data['editing_topic']['step'] == 'waiting_for_new_description'):
+        
+        await process_topic_description_edit(update, context)
+        return
     
     # پردازش زمان آزمون سفارشی
     if (update.message.text and 
@@ -1158,7 +1157,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif quiz_data['step'] == 'adding_more_topics':
             await admin_handle_additional_topic_selection(update, context)
             return
-    
     # پردازش عنوان آزمون ادمین
     if (update.effective_user.id == ADMIN_ID and 
         update.message.text and
