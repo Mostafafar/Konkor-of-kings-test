@@ -2482,7 +2482,7 @@ async def admin_view_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=reply_markup
     )
 
-async def admin_view_results(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
 async def admin_view_results(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """مشاهده نتایج تلفیقی کاربران بر اساس امتیاز و آیدی"""
     if update.effective_user.id != ADMIN_ID:
