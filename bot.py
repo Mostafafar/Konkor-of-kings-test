@@ -719,7 +719,7 @@ async def handle_first_topic_selection(update: Update, context: ContextTypes.DEF
             await update.message.reply_text("❌ مبحث یافت نشد!")
             return
         
-        topic_id, name, description = topic_info[0]
+        topic_id, name, description, is_active = topic_info[0]
         
         # بررسی تعداد سوالات موجود
         questions_count = get_questions_count_by_topic(topic_id)
