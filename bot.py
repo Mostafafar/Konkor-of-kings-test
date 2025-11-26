@@ -2522,7 +2522,8 @@ async def admin_view_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def admin_view_results(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """مشاهده نتایج تلفیقی کاربران بر اساس تعداد آزمون‌ها و میانگین نتایج"""
+async def admin_view_results(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """مشاهده نتایج تلفیقی کاربران بر اساس امتیاز و آیدی"""
     if update.effective_user.id != ADMIN_ID:
         return
     
@@ -2538,32 +2539,34 @@ async def admin_view_results(update: Update, context: ContextTypes.DEFAULT_TYPE)
         )
         return
     
-    text = "📊 نتایج تلفیقی کاربران (بر اساس میانگین عملکرد):\n\n"
+    text = "🏆 رتبه‌بندی کاربران بر اساس امتیاز ترکیبی:\n\n"
     
     for i, stat in enumerate(user_stats[:20]):  # نمایش 20 کاربر برتر
-        full_name, total_quizzes, avg_score, best_score, total_correct, total_time = stat
+        user_id, full_name, total_quizzes, avg_score, best_score, total_correct, total_time, composite_score = stat
         
-        # تبدیل مقادیر decimal به float برای محاسبات
+        # تبدیل مقادیر decimal به float برای نمایش
         avg_score_float = float(avg_score) if avg_score is not None else 0.0
         best_score_float = float(best_score) if best_score is not None else 0.0
         total_quizzes_int = int(total_quizzes) if total_quizzes is not None else 0
         total_correct_int = int(total_correct) if total_correct is not None else 0
-        total_time_float = float(total_time) if total_time is not None else 0.0
-        
-        # محاسبه امتیاز ترکیبی (میانگین نمره + تعداد آزمون‌ها)
-        composite_score = (avg_score_float * 0.7) + (min(total_quizzes_int, 10) * 3)  # وزن‌دهی
+        composite_score_float = float(composite_score) if composite_score is not None else 0.0
         
         # کوتاه کردن نام اگر طولانی باشد
-        display_name = full_name[:25] + "..." if len(full_name) > 25 else full_name
+        display_name = full_name[:20] + "..." if full_name and len(full_name) > 20 else full_name or "نامشخص"
         
-        text += f"{i+1}. **{display_name}**\n"
+        text += f"**{i+1}. {display_name}**\n"
+        text += f"   🆔 آیدی: `{user_id}`\n"
+        text += f"   ⭐ امتیاز: **{composite_score_float:.1f}**\n"
         text += f"   📈 میانگین: {avg_score_float:.1f}% | 🏆 بهترین: {best_score_float:.1f}%\n"
-        text += f"   📚 تعداد آزمون: {total_quizzes_int} | ✅ صحیح کل: {total_correct_int}\n"
-        text += f"   ⭐ امتیاز ترکیبی: {composite_score:.1f}\n"
-        text += "─" * 30 + "\n"
+        text += f"   📚 آزمون‌ها: {total_quizzes_int} | ✅ صحیح کل: {total_correct_int}\n"
+        text += "─" * 35 + "\n"
     
     if len(user_stats) > 20:
         text += f"\n📊 و {len(user_stats) - 20} کاربر دیگر..."
+    
+    text += f"\n💡 **معیار امتیازدهی:**\n"
+    text += f"• 70% میانگین نمره آزمون‌ها\n"
+    text += f"• 30% تعداد آزمون‌ها (حداکثر 10 آزمون)"
     
     keyboard = [
         [InlineKeyboardButton("📈 مشاهده آمار دقیق", callback_data="detailed_stats")],
@@ -2575,7 +2578,57 @@ async def admin_view_results(update: Update, context: ContextTypes.DEFAULT_TYPE)
         text,
         reply_markup=reply_markup,
         parse_mode=ParseMode.MARKDOWN
-        )
+    )
+
+async def show_detailed_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """نمایش آمار دقیق کاربران با جزئیات کامل"""
+    if update.effective_user.id != ADMIN_ID:
+        return
+    
+    # دریافت آمار دقیق
+    user_stats = get_user_comprehensive_stats()
+    
+    if not user_stats:
+        await update.callback_query.answer("❌ هیچ آماری یافت نشد!")
+        return
+    
+    text = "📊 آمار دقیق عملکرد کاربران:\n\n"
+    
+    for i, stat in enumerate(user_stats[:15]):
+        user_id, full_name, total_quizzes, avg_score, best_score, total_correct, total_time, composite_score = stat
+        
+        # تبدیل مقادیر decimal به float برای نمایش
+        avg_score_float = float(avg_score) if avg_score is not None else 0.0
+        best_score_float = float(best_score) if best_score is not None else 0.0
+        total_quizzes_int = int(total_quizzes) if total_quizzes is not None else 0
+        total_correct_int = int(total_correct) if total_correct is not None else 0
+        total_time_float = float(total_time) if total_time is not None else 0.0
+        composite_score_float = float(composite_score) if composite_score is not None else 0.0
+        
+        display_name = full_name[:18] + "..." if full_name and len(full_name) > 18 else full_name or "نامشخص"
+        avg_time_str = f"{int(total_time_float/total_quizzes_int) // 60}:{int(total_time_float/total_quizzes_int) % 60:02d}" if total_quizzes_int > 0 else "00:00"
+        
+        text += f"**{i+1}. {display_name}**\n"
+        text += f"   🆔 آیدی: `{user_id}`\n"
+        text += f"   ⭐ امتیاز ترکیبی: **{composite_score_float:.1f}**\n"
+        text += f"   📊 تعداد آزمون: {total_quizzes_int}\n"
+        text += f"   📈 میانگین نمره: {avg_score_float:.1f}%\n"
+        text += f"   🏆 بهترین نمره: {best_score_float:.1f}%\n"
+        text += f"   ✅ پاسخ‌های صحیح: {total_correct_int}\n"
+        text += f"   ⏱ زمان میانگین: {avg_time_str}\n"
+        text += f"   📝 میانگین صحیح: {total_correct_int/total_quizzes_int:.1f} در هر آزمون\n\n"
+    
+    if len(user_stats) > 15:
+        text += f"📈 و {len(user_stats) - 15} کاربر دیگر..."
+    
+    text += f"\n🔍 **جزئیات محاسبه امتیاز:**\n"
+    text += f"امتیاز ترکیبی = (میانگین نمره × 0.7) + (تعداد آزمون × 3)\n"
+    text += f"• حداکثر 10 آزمون در محاسبه اعمال می‌شود"
+    
+    keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data="admin_view_results")]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.callback_query.edit_message_text(text, reply_markup=reply_markup, parse_mode=ParseMode.MARKDOWN)
 async def admin_broadcast_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """شروع فرآیند ارسال پیام همگانی"""
     if update.effective_user.id != ADMIN_ID:
