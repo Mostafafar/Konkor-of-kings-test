@@ -266,11 +266,10 @@ def get_all_topics():
     return execute_query("SELECT id, name, description, is_active FROM topics ORDER BY name")
 
 def get_topic_by_id(topic_id: int):
-    return execute_query("SELECT id, name, description FROM topics WHERE id = %s AND is_active = TRUE", (topic_id,))
+    return execute_query("SELECT id, name, description, is_active FROM topics WHERE id = %s", (topic_id,))
 
 def get_topic_by_name(name: str):
-    return execute_query("SELECT id, name, description FROM topics WHERE name = %s AND is_active = TRUE", (name,))
-
+    return execute_query("SELECT id, name, description, is_active FROM topics WHERE name = %s AND is_active = TRUE", (name,))
 def get_questions_count_by_topic(topic_id: int):
     """دریافت تعداد سوالات موجود برای یک مبحث"""
     return execute_query(
