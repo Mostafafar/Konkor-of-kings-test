@@ -997,7 +997,7 @@ async def handle_first_topic_selection_from_message(update: Update, context: Con
             await update.message.reply_text(f"❌ مبحث '{topic_name}' یافت نشد!")
             return
         
-        topic_id, name, description = topic_info[0]
+        topic_id, name, description, is_active = topic_info[0]
         await handle_first_topic_selection(update, context, topic_id)
         
     except Exception as e:
@@ -1016,7 +1016,7 @@ async def handle_additional_topic_selection(update: Update, context: ContextType
             await update.message.reply_text(f"❌ مبحث '{topic_name}' یافت نشد!")
             return
         
-        topic_id, name, description = topic_info[0]
+        topic_id, name, description, is_active = topic_info[0]
         
         # بررسی تکراری نبودن مبحث
         if topic_id in context.user_data['custom_quiz']['selected_topics']:
