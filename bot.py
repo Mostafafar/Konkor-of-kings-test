@@ -728,48 +728,7 @@ async def show_full_ranking(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     
     await update.callback_query.edit_message_text(text, reply_markup=reply_markup, parse_mode=ParseMode.MARKDOWN)
 
-async def show_detailed_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """نمایش آمار دقیق کاربران"""
-    if update.effective_user.id != ADMIN_ID:
-        return
-    
-    # دریافت آمار دقیق
-    user_stats = get_user_comprehensive_stats()
-    
-    if not user_stats:
-        await update.callback_query.answer("❌ هیچ آماری یافت نشد!")
-        return
-    
-    text = "📈 آمار دقیق عملکرد کاربران:\n\n"
-    
-    for i, stat in enumerate(user_stats[:15]):
-        full_name, total_quizzes, avg_score, best_score, total_correct, avg_time = stat
-        
-        # تبدیل مقادیر decimal به float برای محاسبات
-        avg_score_float = float(avg_score) if avg_score is not None else 0.0
-        best_score_float = float(best_score) if best_score is not None else 0.0
-        total_quizzes_int = int(total_quizzes) if total_quizzes is not None else 0
-        total_correct_int = int(total_correct) if total_correct is not None else 0
-        avg_time_float = float(avg_time) if avg_time is not None else 0.0
-        
-        # محاسبه امتیاز ترکیبی
-        composite_score = (avg_score_float * 0.7) + (min(total_quizzes_int, 10) * 3)
-        
-        display_name = full_name[:20] + "..." if len(full_name) > 20 else full_name
-        time_str = f"{int(avg_time_float) // 60}:{int(avg_time_float) % 60:02d}" if avg_time_float else "00:00"
-        
-        text += f"**{i+1}. {display_name}**\n"
-        text += f"   📊 آزمون‌ها: {total_quizzes_int} | ⭐ امتیاز: {composite_score:.1f}\n"
-        text += f"   📈 میانگین: {avg_score_float:.1f}% | 🏆 بهترین: {best_score_float:.1f}%\n"
-        text += f"   ✅ صحیح کل: {total_correct_int} | ⏱ زمان میانگین: {time_str}\n\n"
-    
-    if len(user_stats) > 15:
-        text += f"📊 و {len(user_stats) - 15} کاربر دیگر..."
-    
-    keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data="admin_view_results")]]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    await update.callback_query.edit_message_text(text, reply_markup=reply_markup, parse_mode=ParseMode.MARKDOWN)
+
 
 def get_quiz_comprehensive_rankings(quiz_id: int):
     """دریافت رتبه‌بندی کامل یک آزمون با تمام جزئیات"""
@@ -790,23 +749,25 @@ def get_quiz_comprehensive_rankings(quiz_id: int):
     ''', (quiz_id,))
 
 def get_user_comprehensive_stats():
-    """دریافت آمار تلفیقی کاربران بر اساس تعداد آزمون‌ها و نتایج"""
+    """دریافت آمار تلفیقی کاربران با محاسبه امتیاز ترکیبی"""
     return execute_query('''
         SELECT 
+            u.user_id,
             u.full_name,
             COUNT(r.id) as total_quizzes,
             COALESCE(AVG(r.score), 0) as avg_score,
             COALESCE(MAX(r.score), 0) as best_score,
             COALESCE(SUM(r.correct_answers), 0) as total_correct,
-            COALESCE(AVG(r.total_time), 0) as avg_time
+            COALESCE(AVG(r.total_time), 0) as avg_time,
+            -- محاسبه امتیاز ترکیبی: 70% میانگین نمره + 30% تعداد آزمون (حداکثر 10)
+            (COALESCE(AVG(r.score), 0) * 0.7) + (LEAST(COUNT(r.id), 10) * 3) as composite_score
         FROM users u
         LEFT JOIN results r ON u.user_id = r.user_id
         WHERE r.id IS NOT NULL
         GROUP BY u.user_id, u.full_name
         HAVING COUNT(r.id) > 0
-        ORDER BY avg_score DESC, total_quizzes DESC
+        ORDER BY composite_score DESC, avg_score DESC, total_quizzes DESC
     ''')
-
 # ساخت آزمون سفارشی
 async def start_custom_quiz_creation(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['custom_quiz'] = {
