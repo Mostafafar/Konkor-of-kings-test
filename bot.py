@@ -758,15 +758,20 @@ def get_user_comprehensive_stats():
             COALESCE(AVG(r.score), 0) as avg_score,
             COALESCE(MAX(r.score), 0) as best_score,
             COALESCE(SUM(r.correct_answers), 0) as total_correct,
-            COALESCE(AVG(r.total_time), 0) as avg_time,
-            -- محاسبه امتیاز ترکیبی: 70% میانگین نمره + 30% تعداد آزمون (حداکثر 10)
-            (COALESCE(AVG(r.score), 0) * 0.7) + (LEAST(COUNT(r.id), 10) * 3) as composite_score
+            COALESCE(SUM(r.total_time), 0) as total_time,
+            -- محاسبه امتیاز ترکیبی
+            (COALESCE(AVG(r.score), 0) * 0.7) + (
+                CASE 
+                    WHEN COUNT(r.id) > 10 THEN 30
+                    ELSE COUNT(r.id) * 3
+                END
+            ) as composite_score
         FROM users u
         LEFT JOIN results r ON u.user_id = r.user_id
         WHERE r.id IS NOT NULL
         GROUP BY u.user_id, u.full_name
         HAVING COUNT(r.id) > 0
-        ORDER BY composite_score DESC, avg_score DESC, total_quizzes DESC
+        ORDER BY composite_score DESC
     ''')
 # ساخت آزمون سفارشی
 async def start_custom_quiz_creation(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2503,24 +2508,43 @@ async def admin_view_results(update: Update, context: ContextTypes.DEFAULT_TYPE)
     text = "🏆 رتبه‌بندی کاربران بر اساس امتیاز ترکیبی:\n\n"
     
     for i, stat in enumerate(user_stats[:20]):  # نمایش 20 کاربر برتر
-        user_id, full_name, total_quizzes, avg_score, best_score, total_correct, total_time, composite_score = stat
-        
-        # تبدیل مقادیر decimal به float برای نمایش
-        avg_score_float = float(avg_score) if avg_score is not None else 0.0
-        best_score_float = float(best_score) if best_score is not None else 0.0
-        total_quizzes_int = int(total_quizzes) if total_quizzes is not None else 0
-        total_correct_int = int(total_correct) if total_correct is not None else 0
-        composite_score_float = float(composite_score) if composite_score is not None else 0.0
-        
-        # کوتاه کردن نام اگر طولانی باشد
-        display_name = full_name[:20] + "..." if full_name and len(full_name) > 20 else full_name or "نامشخص"
-        
-        text += f"**{i+1}. {display_name}**\n"
-        text += f"   🆔 آیدی: `{user_id}`\n"
-        text += f"   ⭐ امتیاز: **{composite_score_float:.1f}**\n"
-        text += f"   📈 میانگین: {avg_score_float:.1f}% | 🏆 بهترین: {best_score_float:.1f}%\n"
-        text += f"   📚 آزمون‌ها: {total_quizzes_int} | ✅ صحیح کل: {total_correct_int}\n"
-        text += "─" * 35 + "\n"
+        try:
+            # بررسی تعداد فیلدها
+            if len(stat) >= 8:
+                user_id, full_name, total_quizzes, avg_score, best_score, total_correct, total_time, composite_score = stat
+            elif len(stat) == 7:
+                user_id, full_name, total_quizzes, avg_score, best_score, total_correct, total_time = stat
+                composite_score = (float(avg_score) * 0.7) + (min(int(total_quizzes), 10) * 3)
+            else:
+                # اگر تعداد فیلدها کمتر است، از مقادیر پیش‌فرض استفاده کن
+                user_id = stat[0] if len(stat) > 0 else "نامشخص"
+                full_name = stat[1] if len(stat) > 1 else "نامشخص"
+                total_quizzes = stat[2] if len(stat) > 2 else 0
+                avg_score = stat[3] if len(stat) > 3 else 0
+                best_score = stat[4] if len(stat) > 4 else 0
+                total_correct = stat[5] if len(stat) > 5 else 0
+                composite_score = (float(avg_score) * 0.7) + (min(int(total_quizzes), 10) * 3)
+            
+            # تبدیل مقادیر decimal به float برای نمایش
+            avg_score_float = float(avg_score) if avg_score is not None else 0.0
+            best_score_float = float(best_score) if best_score is not None else 0.0
+            total_quizzes_int = int(total_quizzes) if total_quizzes is not None else 0
+            total_correct_int = int(total_correct) if total_correct is not None else 0
+            composite_score_float = float(composite_score) if composite_score is not None else 0.0
+            
+            # کوتاه کردن نام اگر طولانی باشد
+            display_name = full_name[:20] + "..." if full_name and len(full_name) > 20 else full_name or "نامشخص"
+            
+            text += f"**{i+1}. {display_name}**\n"
+            text += f"   🆔 آیدی: `{user_id}`\n"
+            text += f"   ⭐ امتیاز: **{composite_score_float:.1f}**\n"
+            text += f"   📈 میانگین: {avg_score_float:.1f}% | 🏆 بهترین: {best_score_float:.1f}%\n"
+            text += f"   📚 آزمون‌ها: {total_quizzes_int} | ✅ صحیح کل: {total_correct_int}\n"
+            text += "─" * 35 + "\n"
+            
+        except Exception as e:
+            logger.error(f"Error processing user stat: {e}, stat: {stat}")
+            continue
     
     if len(user_stats) > 20:
         text += f"\n📊 و {len(user_stats) - 20} کاربر دیگر..."
@@ -2556,28 +2580,50 @@ async def show_detailed_stats(update: Update, context: ContextTypes.DEFAULT_TYPE
     text = "📊 آمار دقیق عملکرد کاربران:\n\n"
     
     for i, stat in enumerate(user_stats[:15]):
-        user_id, full_name, total_quizzes, avg_score, best_score, total_correct, total_time, composite_score = stat
-        
-        # تبدیل مقادیر decimal به float برای نمایش
-        avg_score_float = float(avg_score) if avg_score is not None else 0.0
-        best_score_float = float(best_score) if best_score is not None else 0.0
-        total_quizzes_int = int(total_quizzes) if total_quizzes is not None else 0
-        total_correct_int = int(total_correct) if total_correct is not None else 0
-        total_time_float = float(total_time) if total_time is not None else 0.0
-        composite_score_float = float(composite_score) if composite_score is not None else 0.0
-        
-        display_name = full_name[:18] + "..." if full_name and len(full_name) > 18 else full_name or "نامشخص"
-        avg_time_str = f"{int(total_time_float/total_quizzes_int) // 60}:{int(total_time_float/total_quizzes_int) % 60:02d}" if total_quizzes_int > 0 else "00:00"
-        
-        text += f"**{i+1}. {display_name}**\n"
-        text += f"   🆔 آیدی: `{user_id}`\n"
-        text += f"   ⭐ امتیاز ترکیبی: **{composite_score_float:.1f}**\n"
-        text += f"   📊 تعداد آزمون: {total_quizzes_int}\n"
-        text += f"   📈 میانگین نمره: {avg_score_float:.1f}%\n"
-        text += f"   🏆 بهترین نمره: {best_score_float:.1f}%\n"
-        text += f"   ✅ پاسخ‌های صحیح: {total_correct_int}\n"
-        text += f"   ⏱ زمان میانگین: {avg_time_str}\n"
-        text += f"   📝 میانگین صحیح: {total_correct_int/total_quizzes_int:.1f} در هر آزمون\n\n"
+        try:
+            # بررسی تعداد فیلدها
+            if len(stat) >= 8:
+                user_id, full_name, total_quizzes, avg_score, best_score, total_correct, total_time, composite_score = stat
+            elif len(stat) == 7:
+                user_id, full_name, total_quizzes, avg_score, best_score, total_correct, total_time = stat
+                composite_score = (float(avg_score) * 0.7) + (min(int(total_quizzes), 10) * 3)
+            else:
+                user_id = stat[0] if len(stat) > 0 else "نامشخص"
+                full_name = stat[1] if len(stat) > 1 else "نامشخص"
+                total_quizzes = stat[2] if len(stat) > 2 else 0
+                avg_score = stat[3] if len(stat) > 3 else 0
+                best_score = stat[4] if len(stat) > 4 else 0
+                total_correct = stat[5] if len(stat) > 5 else 0
+                composite_score = (float(avg_score) * 0.7) + (min(int(total_quizzes), 10) * 3)
+            
+            # تبدیل مقادیر
+            avg_score_float = float(avg_score) if avg_score is not None else 0.0
+            best_score_float = float(best_score) if best_score is not None else 0.0
+            total_quizzes_int = int(total_quizzes) if total_quizzes is not None else 0
+            total_correct_int = int(total_correct) if total_correct is not None else 0
+            total_time_float = float(total_time) if total_time is not None else 0.0
+            composite_score_float = float(composite_score) if composite_score is not None else 0.0
+            
+            display_name = full_name[:18] + "..." if full_name and len(full_name) > 18 else full_name or "نامشخص"
+            
+            # محاسبه میانگین زمان و صحیح
+            avg_time_per_quiz = total_time_float / total_quizzes_int if total_quizzes_int > 0 else 0
+            avg_correct_per_quiz = total_correct_int / total_quizzes_int if total_quizzes_int > 0 else 0
+            avg_time_str = f"{int(avg_time_per_quiz) // 60}:{int(avg_time_per_quiz) % 60:02d}"
+            
+            text += f"**{i+1}. {display_name}**\n"
+            text += f"   🆔 آیدی: `{user_id}`\n"
+            text += f"   ⭐ امتیاز ترکیبی: **{composite_score_float:.1f}**\n"
+            text += f"   📊 تعداد آزمون: {total_quizzes_int}\n"
+            text += f"   📈 میانگین نمره: {avg_score_float:.1f}%\n"
+            text += f"   🏆 بهترین نمره: {best_score_float:.1f}%\n"
+            text += f"   ✅ پاسخ‌های صحیح: {total_correct_int}\n"
+            text += f"   ⏱ زمان میانگین: {avg_time_str}\n"
+            text += f"   📝 میانگین صحیح: {avg_correct_per_quiz:.1f} در هر آزمون\n\n"
+            
+        except Exception as e:
+            logger.error(f"Error processing detailed stat: {e}, stat: {stat}")
+            continue
     
     if len(user_stats) > 15:
         text += f"📈 و {len(user_stats) - 15} کاربر دیگر..."
@@ -2590,6 +2636,9 @@ async def show_detailed_stats(update: Update, context: ContextTypes.DEFAULT_TYPE
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     await update.callback_query.edit_message_text(text, reply_markup=reply_markup, parse_mode=ParseMode.MARKDOWN)
+
+
+
 async def admin_broadcast_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """شروع فرآیند ارسال پیام همگانی"""
     if update.effective_user.id != ADMIN_ID:
