@@ -508,10 +508,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     data = query.data
     
-    
     # هندلرهای جدید برای تنظیمات اولیه
-    # در تابع handle_callback، این موارد را اضافه کنید:
-    
     if data == "ask_question_count":
         await ask_for_question_count(update, context)
     elif data == "ask_time_limit":
@@ -527,10 +524,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "back_to_initial_settings":
         await back_to_initial_settings(update, context)
     
-    
-    
-    # هندلرهای جدید برای تنظیمات اولیه
-    # در تابع handle_callback، این موارد را اضافه کنید:
+    # هندلرهای مدیریت مباحث
     elif data == "edit_topic_name":
         await edit_topic_name_handler(update, context)
     elif data == "edit_topic_description":
@@ -557,12 +551,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         topic_id = int(data.split("_")[3])
         await toggle_topic_status(update, context, topic_id)
     
-    # حذف هندلرهای مربوط به دکمه‌های عددی قدیمی
-    # elif data.startswith("initial_set_count_"):
-    # elif data.startswith("initial_set_time_"):
-    
-    # بقیه هندلرها...
-    if data == "take_quiz":
+    # هندلرهای اصلی منو
+    elif data == "take_quiz":
         await show_quiz_list(update, context)
     elif data == "create_custom_quiz":
         await start_custom_quiz_creation(update, context)
@@ -572,9 +562,16 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await show_help(update, context)
     elif data == "admin_panel":
         await show_admin_panel(update, context)
+    
+    # هندلرهای آزمون
     elif data.startswith("quiz_"):
-        quiz_id = int(data.split("_")[1])
-        await start_quiz(update, context, quiz_id)
+        # بررسی اینکه آیا quiz_ranking است یا quiz معمولی
+        if data.startswith("quiz_ranking_"):
+            quiz_id = int(data.split("_")[2])
+            await show_quiz_rankings(update, context, quiz_id)
+        else:
+            quiz_id = int(data.split("_")[1])
+            await start_quiz(update, context, quiz_id)
     elif data.startswith("ans_"):
         parts = data.split("_")
         quiz_id = int(parts[1])
@@ -593,8 +590,22 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data.startswith("submit_"):
         quiz_id = int(data.split("_")[1])
         await submit_quiz(update, context, quiz_id)
+    
+    # هندلرهای ناوبری
     elif data == "main_menu":
         await show_main_menu(update, context)
+    elif data == "back_to_admin_panel":
+        await show_admin_panel(update, context)
+    elif data == "back_to_quiz_list":
+        await show_quiz_list(update, context)
+    elif data == "back_to_custom_quiz":
+        await start_custom_quiz_creation(update, context)
+    elif data == "back_to_topic_editing":
+        if 'editing_topic' in context.user_data:
+            topic_id = context.user_data['editing_topic']['topic_id']
+            await start_topic_editing(update, context, topic_id)
+    
+    # هندلرهای پنل ادمین
     elif data == "admin_create_quiz":
         await admin_create_quiz(update, context)
     elif data == "admin_manage_quizzes":
@@ -621,42 +632,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data.startswith("quiz_ranking_"):
         quiz_id = int(data.split("_")[2])
         await show_quiz_rankings(update, context, quiz_id)
-    elif data == "custom_quiz_settings":
-        await custom_quiz_settings(update, context)
-    elif data.startswith("set_count_"):
-        count = int(data.split("_")[2])
-        if 'custom_quiz' in context.user_data:
-            context.user_data['custom_quiz']['settings']['count'] = count
-        await custom_quiz_settings(update, context)
-    elif data.startswith("set_time_"):
-        time_limit = int(data.split("_")[2])
-        if 'custom_quiz' in context.user_data:
-            context.user_data['custom_quiz']['settings']['time_limit'] = time_limit
-        await custom_quiz_settings(update, context)
-    elif data.startswith("set_difficulty_"):
-        difficulty = data.split("_")[2]
-        if 'custom_quiz' in context.user_data:
-            context.user_data['custom_quiz']['settings']['difficulty'] = difficulty
-        await custom_quiz_settings(update, context)
-    elif data == "generate_custom_quiz":
-        await generate_custom_quiz(update, context)
-    elif data == "admin_add_topic":
-        await admin_add_topic(update, context)
-    elif data == "set_count_menu":
-        await set_count_menu(update, context)
-    elif data == "set_time_menu":
-        await set_time_menu(update, context)
-    elif data == "set_difficulty_menu":
-        await set_difficulty_menu(update, context)
-    elif data == "clear_custom_topics":
-        await clear_custom_topics(update, context)
-    elif data == "back_to_admin_panel":
-        await show_admin_panel(update, context)
-    elif data == "back_to_quiz_list":
-        await show_quiz_list(update, context)
-    elif data == "back_to_custom_quiz":
-        await start_custom_quiz_creation(update, context)
-    # اضافه کردن این هندلرها در تابع handle_callback
+    
+    # هندلرهای ایجاد آزمون ادمین
     elif data == "admin_ask_title":
         await admin_ask_for_title(update, context)
     elif data == "admin_ask_description":
@@ -677,11 +654,151 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await admin_back_to_settings(update, context)
     elif data == "admin_generate_quiz":
         await admin_generate_quiz(update, context)
-    # در handle_callback اضافه کنید:
-    elif data == "back_to_topic_editing":
-        if 'editing_topic' in context.user_data:
-            topic_id = context.user_data['editing_topic']['topic_id']
-            await start_topic_editing(update, context, topic_id)
+    
+    # هندلرهای آزمون سفارشی
+    elif data == "custom_quiz_settings":
+        await custom_quiz_settings(update, context)
+    elif data.startswith("set_count_"):
+        count = int(data.split("_")[2])
+        if 'custom_quiz' in context.user_data:
+            context.user_data['custom_quiz']['settings']['count'] = count
+        await custom_quiz_settings(update, context)
+    elif data.startswith("set_time_"):
+        time_limit = int(data.split("_")[2])
+        if 'custom_quiz' in context.user_data:
+            context.user_data['custom_quiz']['settings']['time_limit'] = time_limit
+        await custom_quiz_settings(update, context)
+    elif data.startswith("set_difficulty_"):
+        difficulty = data.split("_")[2]
+        if 'custom_quiz' in context.user_data:
+            context.user_data['custom_quiz']['settings']['difficulty'] = difficulty
+        await custom_quiz_settings(update, context)
+    elif data == "generate_custom_quiz":
+        await generate_custom_quiz(update, context)
+    
+    # هندلرهای منوهای تنظیمات
+    elif data == "set_count_menu":
+        await set_count_menu(update, context)
+    elif data == "set_time_menu":
+        await set_time_menu(update, context)
+    elif data == "set_difficulty_menu":
+        await set_difficulty_menu(update, context)
+    elif data == "clear_custom_topics":
+        await clear_custom_topics(update, context)
+    
+    # هندلرهای مدیریت مباحث
+    elif data == "admin_add_topic":
+        await admin_add_topic(update, context)
+    
+    # هندلرهای اضافی برای مشاهده جزئیات
+    elif data.startswith("full_ranking_"):
+        quiz_id = int(data.split("_")[2])
+        await show_full_ranking(update, context, quiz_id)
+    elif data == "detailed_stats":
+        await show_detailed_stats(update, context)
+    
+    else:
+        # اگر هیچکدام از هندلرها مطابقت نداشت
+        logger.warning(f"Unknown callback data: {data}")
+        await query.answer("⚠️ این دکمه در حال حاضر فعال نیست!")
+async def show_full_ranking(update: Update, context: ContextTypes.DEFAULT_TYPE, quiz_id: int):
+    """نمایش جزئیات کامل رتبه‌بندی یک آزمون"""
+    rankings = get_quiz_comprehensive_rankings(quiz_id)
+    quiz_info = get_quiz_info(quiz_id)
+    
+    if not rankings or not quiz_info:
+        await update.callback_query.answer("❌ اطلاعات یافت نشد!")
+        return
+    
+    quiz_title = quiz_info[0]
+    
+    text = f"📊 جزئیات کامل رتبه‌بندی: **{quiz_title}**\n\n"
+    
+    for rank in rankings:
+        full_name, score, correct, wrong, unanswered, total_time, user_rank, completed_at = rank
+        time_str = f"{total_time // 60}:{total_time % 60:02d}"
+        date_str = completed_at.strftime("%m/%d %H:%M")
+        
+        text += f"**{user_rank}. {full_name}**\n"
+        text += f"   📈 {score:.1f}% | ✅{correct} ❌{wrong} ⏸️{unanswered}\n"
+        text += f"   ⏱ {time_str} | 📅 {date_str}\n\n"
+    
+    keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data=f"quiz_ranking_{quiz_id}")]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.callback_query.edit_message_text(text, reply_markup=reply_markup, parse_mode=ParseMode.MARKDOWN)
+
+async def show_detailed_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """نمایش آمار دقیق کاربران"""
+    if update.effective_user.id != ADMIN_ID:
+        return
+    
+    # دریافت آمار دقیق
+    user_stats = get_user_comprehensive_stats()
+    
+    if not user_stats:
+        await update.callback_query.answer("❌ هیچ آماری یافت نشد!")
+        return
+    
+    text = "📈 آمار دقیق عملکرد کاربران:\n\n"
+    
+    for i, stat in enumerate(user_stats[:15]):
+        full_name, total_quizzes, avg_score, best_score, total_correct, avg_time = stat
+        
+        # محاسبه امتیاز ترکیبی
+        composite_score = (avg_score * 0.7) + (min(total_quizzes, 10) * 3)
+        
+        display_name = full_name[:20] + "..." if len(full_name) > 20 else full_name
+        time_str = f"{int(avg_time) // 60}:{int(avg_time) % 60:02d}" if avg_time else "00:00"
+        
+        text += f"**{i+1}. {display_name}**\n"
+        text += f"   📊 آزمون‌ها: {total_quizzes} | ⭐ امتیاز: {composite_score:.1f}\n"
+        text += f"   📈 میانگین: {avg_score:.1f}% | 🏆 بهترین: {best_score:.1f}%\n"
+        text += f"   ✅ صحیح کل: {total_correct} | ⏱ زمان میانگین: {time_str}\n\n"
+    
+    if len(user_stats) > 15:
+        text += f"📊 و {len(user_stats) - 15} کاربر دیگر..."
+    
+    keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data="admin_view_results")]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.callback_query.edit_message_text(text, reply_markup=reply_markup, parse_mode=ParseMode.MARKDOWN)
+
+def get_quiz_comprehensive_rankings(quiz_id: int):
+    """دریافت رتبه‌بندی کامل یک آزمون با تمام جزئیات"""
+    return execute_query('''
+        SELECT 
+            u.full_name, 
+            r.score, 
+            r.correct_answers,
+            r.wrong_answers,
+            r.unanswered_questions,
+            r.total_time, 
+            r.user_rank,
+            r.completed_at
+        FROM results r
+        JOIN users u ON r.user_id = u.user_id
+        WHERE r.quiz_id = %s
+        ORDER BY r.user_rank, r.completed_at
+    ''', (quiz_id,))
+
+def get_user_comprehensive_stats():
+    """دریافت آمار تلفیقی کاربران بر اساس تعداد آزمون‌ها و نتایج"""
+    return execute_query('''
+        SELECT 
+            u.full_name,
+            COUNT(r.id) as total_quizzes,
+            AVG(r.score) as avg_score,
+            MAX(r.score) as best_score,
+            SUM(r.correct_answers) as total_correct,
+            AVG(r.total_time) as avg_time
+        FROM users u
+        LEFT JOIN results r ON u.user_id = r.user_id
+        WHERE r.id IS NOT NULL
+        GROUP BY u.user_id, u.full_name
+        HAVING COUNT(r.id) > 0
+        ORDER BY avg_score DESC, total_quizzes DESC
+    ''')
 
 # ساخت آزمون سفارشی
 async def start_custom_quiz_creation(update: Update, context: ContextTypes.DEFAULT_TYPE):
