@@ -2515,13 +2515,14 @@ async def admin_view_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def admin_view_results(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """مشاهده نتایج"""
+    """مشاهده نتایج تلفیقی کاربران بر اساس تعداد آزمون‌ها و میانگین نتایج"""
     if update.effective_user.id != ADMIN_ID:
         return
     
-    results = get_all_results()
+    # دریافت نتایج تلفیقی کاربران
+    user_stats = get_user_comprehensive_stats()
     
-    if not results:
+    if not user_stats:
         keyboard = [[InlineKeyboardButton("🔙 بازگشت به پنل ادمین", callback_data="admin_panel")]]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await update.callback_query.edit_message_text(
@@ -2530,28 +2531,37 @@ async def admin_view_results(update: Update, context: ContextTypes.DEFAULT_TYPE)
         )
         return
     
-    text = "📊 نتایج آزمون‌ها:\n\n"
-    for result in results[:15]:  # فقط 15 نتیجه اول
-        full_name, title, score, total_time, completed_at = result
-        time_str = f"{total_time // 60}:{total_time % 60:02d}"
-        text += f"👤 {full_name}\n"
-        text += f"📚 {title}\n"
-        text += f"✅ امتیاز: {score}\n"
-        text += f"⏱ زمان: {time_str}\n"
-        text += f"📅 {completed_at.strftime('%Y-%m-%d %H:%M')}\n"
-        text += "─" * 20 + "\n"
+    text = "📊 نتایج تلفیقی کاربران (بر اساس میانگین عملکرد):\n\n"
     
-    if len(results) > 15:
-        text += f"\n📊 و {len(results) - 15} نتیجه دیگر..."
+    for i, stat in enumerate(user_stats[:20]):  # نمایش 20 کاربر برتر
+        full_name, total_quizzes, avg_score, best_score, total_correct, total_time = stat
+        
+        # محاسبه امتیاز ترکیبی (میانگین نمره + تعداد آزمون‌ها)
+        composite_score = (avg_score * 0.7) + (min(total_quizzes, 10) * 3)  # وزن‌دهی
+        
+        # کوتاه کردن نام اگر طولانی باشد
+        display_name = full_name[:25] + "..." if len(full_name) > 25 else full_name
+        
+        text += f"{i+1}. **{display_name}**\n"
+        text += f"   📈 میانگین: {avg_score:.1f}% | 🏆 بهترین: {best_score:.1f}%\n"
+        text += f"   📚 تعداد آزمون: {total_quizzes} | ✅ صحیح کل: {total_correct}\n"
+        text += f"   ⭐ امتیاز ترکیبی: {composite_score:.1f}\n"
+        text += "─" * 30 + "\n"
     
-    keyboard = [[InlineKeyboardButton("🔙 بازگشت به پنل ادمین", callback_data="admin_panel")]]
+    if len(user_stats) > 20:
+        text += f"\n📊 و {len(user_stats) - 20} کاربر دیگر..."
+    
+    keyboard = [
+        [InlineKeyboardButton("📈 مشاهده آمار دقیق", callback_data="detailed_stats")],
+        [InlineKeyboardButton("🔙 بازگشت به پنل ادمین", callback_data="admin_panel")]
+    ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     await update.callback_query.edit_message_text(
         text,
-        reply_markup=reply_markup
+        reply_markup=reply_markup,
+        parse_mode=ParseMode.MARKDOWN
     )
-
 async def admin_broadcast_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """شروع فرآیند ارسال پیام همگانی"""
     if update.effective_user.id != ADMIN_ID:
