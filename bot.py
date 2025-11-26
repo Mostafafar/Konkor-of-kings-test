@@ -745,16 +745,23 @@ async def show_detailed_stats(update: Update, context: ContextTypes.DEFAULT_TYPE
     for i, stat in enumerate(user_stats[:15]):
         full_name, total_quizzes, avg_score, best_score, total_correct, avg_time = stat
         
+        # تبدیل مقادیر decimal به float برای محاسبات
+        avg_score_float = float(avg_score) if avg_score is not None else 0.0
+        best_score_float = float(best_score) if best_score is not None else 0.0
+        total_quizzes_int = int(total_quizzes) if total_quizzes is not None else 0
+        total_correct_int = int(total_correct) if total_correct is not None else 0
+        avg_time_float = float(avg_time) if avg_time is not None else 0.0
+        
         # محاسبه امتیاز ترکیبی
-        composite_score = (avg_score * 0.7) + (min(total_quizzes, 10) * 3)
+        composite_score = (avg_score_float * 0.7) + (min(total_quizzes_int, 10) * 3)
         
         display_name = full_name[:20] + "..." if len(full_name) > 20 else full_name
-        time_str = f"{int(avg_time) // 60}:{int(avg_time) % 60:02d}" if avg_time else "00:00"
+        time_str = f"{int(avg_time_float) // 60}:{int(avg_time_float) % 60:02d}" if avg_time_float else "00:00"
         
         text += f"**{i+1}. {display_name}**\n"
-        text += f"   📊 آزمون‌ها: {total_quizzes} | ⭐ امتیاز: {composite_score:.1f}\n"
-        text += f"   📈 میانگین: {avg_score:.1f}% | 🏆 بهترین: {best_score:.1f}%\n"
-        text += f"   ✅ صحیح کل: {total_correct} | ⏱ زمان میانگین: {time_str}\n\n"
+        text += f"   📊 آزمون‌ها: {total_quizzes_int} | ⭐ امتیاز: {composite_score:.1f}\n"
+        text += f"   📈 میانگین: {avg_score_float:.1f}% | 🏆 بهترین: {best_score_float:.1f}%\n"
+        text += f"   ✅ صحیح کل: {total_correct_int} | ⏱ زمان میانگین: {time_str}\n\n"
     
     if len(user_stats) > 15:
         text += f"📊 و {len(user_stats) - 15} کاربر دیگر..."
@@ -788,10 +795,10 @@ def get_user_comprehensive_stats():
         SELECT 
             u.full_name,
             COUNT(r.id) as total_quizzes,
-            AVG(r.score) as avg_score,
-            MAX(r.score) as best_score,
-            SUM(r.correct_answers) as total_correct,
-            AVG(r.total_time) as avg_time
+            COALESCE(AVG(r.score), 0) as avg_score,
+            COALESCE(MAX(r.score), 0) as best_score,
+            COALESCE(SUM(r.correct_answers), 0) as total_correct,
+            COALESCE(AVG(r.total_time), 0) as avg_time
         FROM users u
         LEFT JOIN results r ON u.user_id = r.user_id
         WHERE r.id IS NOT NULL
