@@ -90,6 +90,8 @@ def download_welcome_photo():
         logger.error(f"Error downloading welcome photo: {e}")
         return False
 
+
+        
 def init_database():
     """اتصال به دیتابیس و ایجاد جداول"""
     global db_connection
@@ -184,10 +186,22 @@ def init_database():
             )
         ''')
         
+        # جدول منابع (جدید)
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS resources (
+                id SERIAL PRIMARY KEY,
+                name TEXT NOT NULL UNIQUE,
+                description TEXT,
+                is_active BOOLEAN DEFAULT TRUE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS question_bank (
                 id SERIAL PRIMARY KEY,
                 topic_id INTEGER REFERENCES topics(id) ON DELETE SET NULL,
+                resource_id INTEGER REFERENCES resources(id) ON DELETE SET NULL,
                 question_image TEXT NOT NULL,
                 correct_answer INTEGER NOT NULL,
                 difficulty_level TEXT DEFAULT 'medium',
@@ -198,6 +212,17 @@ def init_database():
                 is_active BOOLEAN DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
+        ''')
+        
+        # تغییر جدول question_bank برای اضافه کردن resource_id اگر وجود ندارد
+        cursor.execute('''
+            DO $$ 
+            BEGIN 
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                              WHERE table_name='question_bank' AND column_name='resource_id') THEN
+                    ALTER TABLE question_bank ADD COLUMN resource_id INTEGER REFERENCES resources(id) ON DELETE SET NULL;
+                END IF;
+            END $$;
         ''')
         
         cursor.execute('''
@@ -220,6 +245,135 @@ def init_database():
         logger.error(f"Database initialization error: {e}")
         if db_connection:
             db_connection.rollback()
+async def admin_manage_resources(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """مدیریت منابع"""
+    if update.effective_user.id != ADMIN_ID:
+        return
+    
+    resources = get_all_resources()
+    
+    if not resources:
+        keyboard = [
+            [InlineKeyboardButton("➕ افزودن منبع جدید", callback_data="admin_add_resource")],
+            [InlineKeyboardButton("🔙 بازگشت به پنل ادمین", callback_data="admin_panel")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.callback_query.edit_message_text(
+            "⚠️ هیچ منبعی یافت نشد.",
+            reply_markup=reply_markup
+        )
+        return
+    
+    text = "📖 مدیریت منابع:\n\n"
+    for resource in resources:
+        resource_id, name, description, is_active = resource
+        status = "✅ فعال" if is_active else "❌ غیرفعال"
+        text += f"• {name} ({status})\n"
+        if description:
+            text += f"  📝 {description}\n"
+        text += f"  🆔 کد: {resource_id}\n\n"
+    
+    keyboard = [
+        [InlineKeyboardButton("➕ افزودن منبع جدید", callback_data="admin_add_resource")],
+        [InlineKeyboardButton("✏️ ویرایش منبع", callback_data="admin_edit_resource")],
+        [InlineKeyboardButton("❌ حذف منبع", callback_data="admin_delete_resource")],
+        [InlineKeyboardButton("🔍 مشاهده سوالات منبع", callback_data="admin_view_resource_questions")],
+        [InlineKeyboardButton("🔙 بازگشت به پنل ادمین", callback_data="admin_panel")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.callback_query.edit_message_text(text, reply_markup=reply_markup)
+
+async def admin_add_resource(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """افزودن منبع جدید"""
+    if update.effective_user.id != ADMIN_ID:
+        return
+    
+    context.user_data['admin_action'] = 'adding_resource'
+    context.user_data['resource_data'] = {'step': 'name'}
+    
+    keyboard = [[InlineKeyboardButton("🔙 بازگشت به مدیریت منابع", callback_data="admin_manage_resources")]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.callback_query.edit_message_text(
+        "📖 افزودن منبع جدید:\n\n"
+        "لطفاً نام منبع را ارسال کنید:",
+        reply_markup=reply_markup
+    )
+# توابع مدیریت منابع
+def get_all_resources():
+    return execute_query("SELECT id, name, description, is_active FROM resources ORDER BY name")
+
+def get_resource_by_id(resource_id: int):
+    return execute_query("SELECT id, name, description, is_active FROM resources WHERE id = %s", (resource_id,))
+
+def get_resource_by_name(name: str):
+    return execute_query("SELECT id, name, description, is_active FROM resources WHERE name = %s AND is_active = TRUE", (name,))
+
+def get_questions_count_by_resource(resource_id: int):
+    """دریافت تعداد سوالات موجود برای یک منبع"""
+    return execute_query(
+        "SELECT COUNT(*) FROM question_bank WHERE resource_id = %s AND is_active = TRUE",
+        (resource_id,)
+    )
+
+def get_resource_name(resource_id: int):
+    """دریافت نام منبع بر اساس ID"""
+    result = execute_query("SELECT name FROM resources WHERE id = %s", (resource_id,))
+    return result[0][0] if result else "نامشخص"
+
+def add_resource(name: str, description: str = ""):
+    return execute_query(
+        "INSERT INTO resources (name, description) VALUES (%s, %s) ON CONFLICT (name) DO NOTHING RETURNING id",
+        (name, description), return_id=True
+    )
+
+def update_resource(resource_id: int, name: str, description: str = ""):
+    return execute_query(
+        "UPDATE resources SET name = %s, description = %s WHERE id = %s",
+        (name, description, resource_id)
+    )
+
+def delete_resource(resource_id: int):
+    return execute_query("DELETE FROM resources WHERE id = %s", (resource_id,))
+
+def toggle_resource_status(resource_id: int):
+    """تغییر وضعیت فعال/غیرفعال منبع"""
+    return execute_query(
+        "UPDATE resources SET is_active = NOT is_active WHERE id = %s", 
+        (resource_id,)
+    )
+
+# تابع اصلاح شده برای افزودن سوال به بانک با منبع
+def add_question_to_bank(topic_id: int, resource_id: int, question_image: str, correct_answer: int):
+    return execute_query('''
+        INSERT INTO question_bank (topic_id, resource_id, question_image, correct_answer)
+        VALUES (%s, %s, %s, %s) RETURNING id
+    ''', (topic_id, resource_id, question_image, correct_answer), return_id=True)
+
+# تابع اصلاح شده برای دریافت سوالات
+def get_questions_by_resources(resource_ids: List[int], difficulty: str = 'all', limit: int = 20):
+    if not resource_ids:
+        return []
+    
+    if difficulty == 'all':
+        query = """
+            SELECT id, question_image, correct_answer, auto_difficulty_score 
+            FROM question_bank 
+            WHERE resource_id = ANY(%s) AND is_active = TRUE
+            ORDER BY RANDOM() 
+            LIMIT %s
+        """
+        return execute_query(query, (resource_ids, limit))
+    else:
+        query = """
+            SELECT id, question_image, correct_answer, auto_difficulty_score 
+            FROM question_bank 
+            WHERE resource_id = ANY(%s) AND is_active = TRUE
+            ORDER BY auto_difficulty_score {}
+            LIMIT %s
+        """.format("DESC" if difficulty == 'hard' else "ASC")
+        return execute_query(query, (resource_ids, limit))
         
 
 def execute_query(query: str, params: tuple = None, return_id: bool = False):
