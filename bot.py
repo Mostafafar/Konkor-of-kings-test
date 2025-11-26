@@ -2536,15 +2536,22 @@ async def admin_view_results(update: Update, context: ContextTypes.DEFAULT_TYPE)
     for i, stat in enumerate(user_stats[:20]):  # نمایش 20 کاربر برتر
         full_name, total_quizzes, avg_score, best_score, total_correct, total_time = stat
         
+        # تبدیل مقادیر decimal به float برای محاسبات
+        avg_score_float = float(avg_score) if avg_score is not None else 0.0
+        best_score_float = float(best_score) if best_score is not None else 0.0
+        total_quizzes_int = int(total_quizzes) if total_quizzes is not None else 0
+        total_correct_int = int(total_correct) if total_correct is not None else 0
+        total_time_float = float(total_time) if total_time is not None else 0.0
+        
         # محاسبه امتیاز ترکیبی (میانگین نمره + تعداد آزمون‌ها)
-        composite_score = (avg_score * 0.7) + (min(total_quizzes, 10) * 3)  # وزن‌دهی
+        composite_score = (avg_score_float * 0.7) + (min(total_quizzes_int, 10) * 3)  # وزن‌دهی
         
         # کوتاه کردن نام اگر طولانی باشد
         display_name = full_name[:25] + "..." if len(full_name) > 25 else full_name
         
         text += f"{i+1}. **{display_name}**\n"
-        text += f"   📈 میانگین: {avg_score:.1f}% | 🏆 بهترین: {best_score:.1f}%\n"
-        text += f"   📚 تعداد آزمون: {total_quizzes} | ✅ صحیح کل: {total_correct}\n"
+        text += f"   📈 میانگین: {avg_score_float:.1f}% | 🏆 بهترین: {best_score_float:.1f}%\n"
+        text += f"   📚 تعداد آزمون: {total_quizzes_int} | ✅ صحیح کل: {total_correct_int}\n"
         text += f"   ⭐ امتیاز ترکیبی: {composite_score:.1f}\n"
         text += "─" * 30 + "\n"
     
@@ -2561,7 +2568,7 @@ async def admin_view_results(update: Update, context: ContextTypes.DEFAULT_TYPE)
         text,
         reply_markup=reply_markup,
         parse_mode=ParseMode.MARKDOWN
-    )
+        )
 async def admin_broadcast_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """شروع فرآیند ارسال پیام همگانی"""
     if update.effective_user.id != ADMIN_ID:
