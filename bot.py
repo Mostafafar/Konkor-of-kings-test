@@ -3554,6 +3554,7 @@ async def show_quiz_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await update.callback_query.edit_message_text(text, reply_markup=reply_markup)
 
+
 async def show_my_results(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     results = execute_query('''
@@ -3581,16 +3582,16 @@ async def show_my_results(update: Update, context: ContextTypes.DEFAULT_TYPE):
         completed_date = completed_at.strftime("%Y/%m/%d %H:%M")
         rank_text = f" | 🏆 رتبه: {user_rank}" if created_by_admin and user_rank else ""
         
-        result_text += f"{i}. {title}\n"
-        result_text += f"   ✅ {correct} | ❌ {wrong} | ⏸️ {unanswered}\n"
-        result_text += f"   📈 {score:.1f}% | ⏱ {time_str}{rank_text}\n"
-        result_text += f"   📅 {completed_date}\n\n"
+        # نمایش نام آزمون به صورت واضح
+        result_text += f"**{i}. {title}**\n"
+        result_text += f"   ✅ {correct} صحیح | ❌ {wrong} غلط | ⏸️ {unanswered} بی‌پاسخ\n"
+        result_text += f"   📈 نمره: {score:.1f}% | ⏱ زمان: {time_str}{rank_text}\n"
+        result_text += f"   📅 تاریخ: {completed_date}\n\n"
     
     keyboard = [[InlineKeyboardButton("🔙 بازگشت به منوی اصلی", callback_data="main_menu")]]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
-    await update.callback_query.edit_message_text(result_text, reply_markup=reply_markup)
-
+    await update.callback_query.edit_message_text(result_text, reply_markup=reply_markup, parse_mode=ParseMode.MARKDOWN)
 async def show_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     help_text = (
         "📖 راهنمای ربات آزمون:\n\n"
