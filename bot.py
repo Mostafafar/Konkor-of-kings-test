@@ -1925,7 +1925,20 @@ async def admin_quiz_rankings(update: Update, context: ContextTypes.DEFAULT_TYPE
     
     await update.callback_query.edit_message_text("🏆 انتخاب آزمون برای مشاهده رتبه‌بندی:", reply_markup=reply_markup)
 
+
 async def show_quiz_rankings(update: Update, context: ContextTypes.DEFAULT_TYPE, quiz_id: int):
+    """دریافت و نمایش رتبه‌بندی کامل یک آزمون با جزئیات بیشتر"""
+    # دریافت اطلاعات آزمون
+    quiz_info = get_quiz_info(quiz_id)
+    if not quiz_info:
+        keyboard = [[InlineKeyboardButton("🔙 بازگشت به رتبه‌بندی", callback_data="admin_quiz_rankings")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.callback_query.edit_message_text("⚠️ آزمون یافت نشد.", reply_markup=reply_markup)
+        return
+    
+    quiz_title, description, time_limit, is_active, created_by_admin = quiz_info
+    
+    # دریافت رتبه‌بندی
     rankings = get_quiz_rankings(quiz_id)
     
     if not rankings:
@@ -1934,20 +1947,41 @@ async def show_quiz_rankings(update: Update, context: ContextTypes.DEFAULT_TYPE,
         await update.callback_query.edit_message_text("⚠️ هیچ نتیجه‌ای برای این آزمون یافت نشد.", reply_markup=reply_markup)
         return
     
-    text = f"🏆 رتبه‌بندی آزمون:\n\n"
-    for rank in rankings[:20]:  # نمایش 20 رتبه اول
+    # آمار کلی آزمون
+    total_participants = len(rankings)
+    avg_score = sum(rank[1] for rank in rankings) / total_participants if total_participants > 0 else 0
+    best_score = max(rank[1] for rank in rankings) if rankings else 0
+    
+    text = f"🏆 رتبه‌بندی آزمون: **{quiz_title}**\n\n"
+    text += f"📊 آمار کلی:\n"
+    text += f"• 👥 تعداد شرکت‌کنندگان: {total_participants}\n"
+    text += f"• 📈 میانگین نمره: {avg_score:.1f}%\n"
+    text += f"• 🎖️ بهترین نمره: {best_score:.1f}%\n"
+    text += f"• ⏱ زمان آزمون: {time_limit} دقیقه\n\n"
+    
+    text += "📋 رتبه‌بندی شرکت‌کنندگان:\n\n"
+    
+    # نمایش 15 رتبه اول
+    for i, rank in enumerate(rankings[:15]):
         full_name, score, correct_answers, total_time, user_rank = rank
         time_str = f"{total_time // 60}:{total_time % 60:02d}"
-        text += f"{user_rank}. {full_name}\n   📈 {score:.1f}% | ✅ {correct_answers} | ⏱ {time_str}\n\n"
+        
+        # کوتاه کردن نام اگر طولانی باشد
+        display_name = full_name[:20] + "..." if len(full_name) > 20 else full_name
+        
+        text += f"{user_rank}. **{display_name}**\n"
+        text += f"   📈 {score:.1f}% | ✅ {correct_answers} | ⏱ {time_str}\n\n"
     
-    if len(rankings) > 20:
-        text += f"📊 و {len(rankings) - 20} شرکت‌کننده دیگر..."
+    if len(rankings) > 15:
+        text += f"📊 و {len(rankings) - 15} شرکت‌کننده دیگر...\n\n"
     
-    keyboard = [[InlineKeyboardButton("🔙 بازگشت به رتبه‌بندی", callback_data="admin_quiz_rankings")]]
+    keyboard = [
+        [InlineKeyboardButton("📊 مشاهده جزئیات کامل", callback_data=f"full_ranking_{quiz_id}")],
+        [InlineKeyboardButton("🔙 بازگشت به رتبه‌بندی", callback_data="admin_quiz_rankings")]
+    ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
-    await update.callback_query.edit_message_text(text, reply_markup=reply_markup)
-
+    await update.callback_query.edit_message_text(text, reply_markup=reply_markup, parse_mode=ParseMode.MARKDOWN)
 # توابع مدیریت ادمین
 
 async def admin_create_quiz(update: Update, context: ContextTypes.DEFAULT_TYPE):
