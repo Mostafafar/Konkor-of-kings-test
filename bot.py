@@ -1459,15 +1459,65 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await handle_additional_resource_selection(update, context)
                 return
     
-    # پردازش انتخاب منبع برای افزودن سوال به بانک
+    # پردازش افزودن منبع جدید توسط ادمین
     if (update.effective_user.id == ADMIN_ID and 
-        update.message.text and 
-        update.message.text.startswith('منبع انتخاب شده:') and
-        context.user_data.get('admin_action') == 'adding_question_to_bank' and
-        context.user_data.get('question_bank_data', {}).get('step') == 'selecting_resource'):
+        context.user_data.get('admin_action') == 'adding_resource' and
+        'resource_data' in context.user_data):
         
-        await handle_resource_selection_from_message(update, context)
-        return
+        resource_data = context.user_data['resource_data']
+        
+        if resource_data.get('step') == 'name':
+            # ذخیره نام منبع
+            resource_name = update.message.text.strip()
+            
+            if len(resource_name) < 2:
+                await update.message.reply_text("❌ نام منبع باید حداقل ۲ کاراکتر باشد!")
+                return
+            
+            # بررسی تکراری نبودن نام منبع
+            existing_resource = get_resource_by_name(resource_name)
+            if existing_resource:
+                await update.message.reply_text("❌ منبعی با این نام از قبل وجود دارد!")
+                return
+            
+            resource_data['name'] = resource_name
+            resource_data['step'] = 'description'
+            context.user_data['resource_data'] = resource_data
+            
+            await update.message.reply_text(
+                f"✅ نام منبع ذخیره شد: **{resource_name}**\n\n"
+                f"لطفاً توضیحات منبع را ارسال کنید (اختیاری):\n\n"
+                f"💡 می‌توانید 'ندارد' را ارسال کنید تا از توضیحات صرف نظر کنید.",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return
+        
+        elif resource_data.get('step') == 'description':
+            # ذخیره توضیحات منبع
+            description = update.message.text.strip()
+            
+            if description == 'ندارد':
+                description = ""
+            
+            # ذخیره منبع در دیتابیس
+            result = add_resource(resource_data['name'], description)
+            
+            if result:
+                await update.message.reply_text(
+                    f"✅ منبع **{resource_data['name']}** با موفقیت اضافه شد!",
+                    parse_mode=ParseMode.MARKDOWN
+                )
+            else:
+                await update.message.reply_text("❌ خطا در افزودن منبع!")
+            
+            # پاک کردن داده‌های موقت
+            if 'resource_data' in context.user_data:
+                del context.user_data['resource_data']
+            if 'admin_action' in context.user_data:
+                del context.user_data['admin_action']
+            
+            return
+    
     
     
     # 🔄 بخش ۱: پردازش آزمون سفارشی کاربر
