@@ -1708,7 +1708,7 @@ async def handle_topic_selection_from_message(update: Update, context: ContextTy
             )
             return
         
-        topic_id, name, description = topic_info[0]
+        topic_id, name, description, is_active = topic_info[0]
         logger.info(f"✅ TOPIC_SELECTION: Found topic - ID: {topic_id}, Name: {name}")
         
         # به‌روزرسانی context
