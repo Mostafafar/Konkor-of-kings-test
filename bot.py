@@ -724,6 +724,42 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     data = query.data
     
+    # هندلرهای جدید برای مدیریت منابع
+    elif data == "admin_manage_resources":
+        await admin_manage_resources(update, context)
+    elif data == "admin_add_resource":
+        await admin_add_resource(update, context)
+    elif data == "admin_edit_resource":
+        await admin_edit_resource(update, context)
+    elif data == "admin_delete_resource":
+        await admin_delete_resource(update, context)
+    elif data == "admin_view_resource_questions":
+        await admin_view_resource_questions(update, context)
+    elif data.startswith("edit_resource_"):
+        resource_id = int(data.split("_")[2])
+        await start_resource_editing(update, context, resource_id)
+    elif data.startswith("delete_resource_"):
+        resource_id = int(data.split("_")[2])
+        await confirm_resource_deletion(update, context, resource_id)
+    elif data.startswith("view_resource_questions_"):
+        resource_id = int(data.split("_")[3])
+        await show_resource_questions(update, context, resource_id)
+    elif data.startswith("confirm_delete_resource_"):
+        resource_id = int(data.split("_")[3])
+        await delete_resource_handler(update, context, resource_id)
+    elif data.startswith("toggle_resource_status_"):
+        resource_id = int(data.split("_")[3])
+        await toggle_resource_status(update, context, resource_id)
+    elif data == "edit_resource_name":
+        await edit_resource_name_handler(update, context)
+    elif data == "edit_resource_description":
+        await edit_resource_description_handler(update, context)
+    elif data == "back_to_resource_editing":
+        if 'editing_resource' in context.user_data:
+            resource_id = context.user_data['editing_resource']['resource_id']
+            await start_resource_editing(update, context, resource_id)
+    elif data == "back_to_resource_management":
+        await admin_manage_resources(update, context)
     # هندلرهای جدید برای تنظیمات اولیه
     if data == "ask_question_count":
         await ask_for_question_count(update, context)
