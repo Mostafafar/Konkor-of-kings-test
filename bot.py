@@ -2107,6 +2107,7 @@ async def show_admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("➕ ایجاد آزمون جدید", callback_data="admin_create_quiz")],
         [InlineKeyboardButton("📋 مدیریت آزمون‌ها", callback_data="admin_manage_quizzes")],
         [InlineKeyboardButton("📚 مدیریت مباحث", callback_data="admin_manage_topics")],
+        [InlineKeyboardButton("📖 مدیریت منابع", callback_data="admin_manage_resources")],
         [InlineKeyboardButton("❓ افزودن سوال به بانک", callback_data="admin_add_question")],
         [InlineKeyboardButton("🏆 مشاهده رتبه‌بندی", callback_data="admin_quiz_rankings")],
         [InlineKeyboardButton("👥 مشاهده کاربران", callback_data="admin_view_users")],
