@@ -300,7 +300,68 @@ async def admin_add_resource(update: Update, context: ContextTypes.DEFAULT_TYPE)
         "لطفاً نام منبع را ارسال کنید:",
         reply_markup=reply_markup
     )
-# توابع مدیریت منابع
+async def handle_first_resource_selection(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """پردازش انتخاب منبع اول"""
+    try:
+        text = update.message.text
+        resource_name = text.replace("منبع انتخاب شده:", "").strip()
+        
+        resource_info = get_resource_by_name(resource_name)
+        if not resource_info:
+            await update.message.reply_text(f"❌ منبع '{resource_name}' یافت نشد!")
+            return
+        
+        resource_id, name, description, is_active = resource_info[0]
+        
+        # بررسی تعداد سوالات موجود
+        questions_count = get_questions_count_by_resource(resource_id)
+        available_questions = questions_count[0][0] if questions_count else 0
+        
+        if available_questions == 0:
+            await update.message.reply_text(f"❌ هیچ سوالی برای منبع '{name}' در بانک وجود ندارد!")
+            return
+        
+        # افزودن منبع به لیست
+        context.user_data['custom_quiz']['selected_resources'].append(resource_id)
+        context.user_data['custom_quiz']['step'] = 'settings'
+        context.user_data['custom_quiz']['first_resource_name'] = name
+        
+        await show_initial_settings_for_resources(update, context)
+        
+    except Exception as e:
+        logger.error(f"Error in first resource selection: {e}")
+        await update.message.reply_text("❌ خطا در پردازش انتخاب منبع!")
+
+async def handle_resource_selection_from_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """پردازش انتخاب منبع از پیام"""
+    try:
+        text = update.message.text
+        resource_name = text.replace("منبع انتخاب شده:", "").strip()
+        
+        resource_info = get_resource_by_name(resource_name)
+        if not resource_info:
+            await update.message.reply_text(f"❌ منبع '{resource_name}' یافت نشد!")
+            return
+        
+        resource_id, name, description, is_active = resource_info[0]
+        
+        # ذخیره منبع و رفتن به مرحله بعد
+        question_data = context.user_data['question_bank_data']
+        question_data['resource_id'] = resource_id
+        question_data['resource_name'] = name
+        question_data['step'] = 'waiting_for_photo'
+        
+        await update.message.reply_text(
+            f"✅ منبع انتخاب شد: **{name}**\n\n"
+            f"**مرحله ۳/۴: ارسال عکس سوال**\n\n"
+            f"📸 لطفاً عکس سوال را ارسال کنید:",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        
+    except Exception as e:
+        logger.error(f"Error in resource selection: {e}")
+        await update.message.reply_text("❌ خطا در پردازش انتخاب منبع!")
+# توابعمدیریت منابع
 def get_all_resources():
     return execute_query("SELECT id, name, description, is_active FROM resources ORDER BY name")
 
@@ -3275,30 +3336,41 @@ async def inline_query_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     logger.info(f"🔍 INLINE_QUERY: User {user_id}, Query: '{query}'")
     
     results = []
-    is_admin = user_id == ADMIN_ID
     
-    # برای همه کاربران (ادمین و کاربران عادی) از یک فرمت استفاده می‌کنیم
-    topics = get_all_topics()
-    logger.info(f"🔍 INLINE_QUERY: Found {len(topics)} topics")
+    # تشخیص نوع جستجو بر اساس کلمات کلیدی
+    is_resource_search = "منبع" in query or "resource" in query
+    is_topic_search = "مبحث" in query or "topic" in query or not (is_resource_search or query == "")
     
-    for topic in topics:
-        topic_id, name, description, is_active = topic
-        
-        # فیلتر کردن بر اساس جستجوی کاربر
-        if not query or query in name.lower() or (description and query in description.lower()):
-            
-            # برای همه کاربران از یک فرمت استفاده می‌کنیم
-            result_id = str(topic_id)
-            logger.info(f"🔍 INLINE_QUERY: Creating result - ID: {result_id}, Name: {name}")
-            
-            results.append(InlineQueryResultArticle(
-                id=result_id,
-                title=name,
-                description=description or "بدون توضیح",
-                input_message_content=InputTextMessageContent(
-                    f"مبحث انتخاب شده: {name}"
-                )
-            ))
+    # حذف کلمات کلیدی از query برای جستجوی واقعی
+    clean_query = query.replace("منبع", "").replace("مبحث", "").replace("resource", "").replace("topic", "").strip()
+    
+    if is_topic_search:
+        topics = get_all_topics()
+        for topic in topics:
+            topic_id, name, description, is_active = topic
+            if not clean_query or clean_query in name.lower() or (description and clean_query in description.lower()):
+                results.append(InlineQueryResultArticle(
+                    id=f"topic_{topic_id}",
+                    title=f"📚 {name}",
+                    description=description or "بدون توضیح",
+                    input_message_content=InputTextMessageContent(
+                        f"مبحث انتخاب شده: {name}"
+                    )
+                ))
+    
+    if is_resource_search:
+        resources = get_all_resources()
+        for resource in resources:
+            resource_id, name, description, is_active = resource
+            if not clean_query or clean_query in name.lower() or (description and clean_query in description.lower()):
+                results.append(InlineQueryResultArticle(
+                    id=f"resource_{resource_id}",
+                    title=f"📖 {name}",
+                    description=description or "بدون توضیح",
+                    input_message_content=InputTextMessageContent(
+                        f"منبع انتخاب شده: {name}"
+                    )
+                ))
     
     logger.info(f"🔍 INLINE_QUERY: Returning {len(results)} results")
     await update.inline_query.answer(results, cache_time=1)
