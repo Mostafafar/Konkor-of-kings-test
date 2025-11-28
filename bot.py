@@ -1405,6 +1405,32 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await handle_contact(update, context)
         return
     
+    # پردازش انتخاب منبع برای آزمون سفارشی
+    if (update.message.text and 
+        update.message.text.startswith('منبع انتخاب شده:') and
+        'custom_quiz' in context.user_data):
+        
+        quiz_data = context.user_data['custom_quiz']
+        
+        if quiz_data.get('mode') == 'resources':
+            if quiz_data['step'] == 'select_first_resource':
+                await handle_first_resource_selection(update, context)
+                return
+            elif quiz_data['step'] == 'adding_more_resources':
+                await handle_additional_resource_selection(update, context)
+                return
+    
+    # پردازش انتخاب منبع برای افزودن سوال به بانک
+    if (update.effective_user.id == ADMIN_ID and 
+        update.message.text and 
+        update.message.text.startswith('منبع انتخاب شده:') and
+        context.user_data.get('admin_action') == 'adding_question_to_bank' and
+        context.user_data.get('question_bank_data', {}).get('step') == 'selecting_resource'):
+        
+        await handle_resource_selection_from_message(update, context)
+        return
+    
+    
     # 🔄 بخش ۱: پردازش آزمون سفارشی کاربر
     if (update.message.text and 
         update.message.text.startswith('مبحث انتخاب شده:') and
