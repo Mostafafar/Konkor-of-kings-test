@@ -725,6 +725,23 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = query.data
     
     # هندلرهای جدید برای مدیریت منابع
+    # هندلرهای جدید برای تنظیمات اولیه
+    if data == "ask_question_count":
+        await ask_for_question_count(update, context)
+    elif data == "ask_time_limit":
+        await ask_for_time_limit(update, context)
+    elif data == "initial_set_difficulty":
+        await initial_set_difficulty(update, context)
+    elif data.startswith("initial_set_difficulty_"):
+        difficulty = data.split("_")[3]
+        context.user_data['custom_quiz']['settings']['difficulty'] = difficulty
+        await back_to_initial_settings(update, context)
+    elif data == "add_more_topics":
+        await add_more_topics(update, context)
+    elif data == "back_to_initial_settings":
+        await back_to_initial_settings(update, context)
+    
+    # هندلرهای جدید برای مدیریت منابع
     elif data == "admin_manage_resources":
         await admin_manage_resources(update, context)
     elif data == "admin_add_resource":
@@ -760,21 +777,6 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await start_resource_editing(update, context, resource_id)
     elif data == "back_to_resource_management":
         await admin_manage_resources(update, context)
-    # هندلرهای جدید برای تنظیمات اولیه
-    if data == "ask_question_count":
-        await ask_for_question_count(update, context)
-    elif data == "ask_time_limit":
-        await ask_for_time_limit(update, context)
-    elif data == "initial_set_difficulty":
-        await initial_set_difficulty(update, context)
-    elif data.startswith("initial_set_difficulty_"):
-        difficulty = data.split("_")[3]
-        context.user_data['custom_quiz']['settings']['difficulty'] = difficulty
-        await back_to_initial_settings(update, context)
-    elif data == "add_more_topics":
-        await add_more_topics(update, context)
-    elif data == "back_to_initial_settings":
-        await back_to_initial_settings(update, context)
     
     # هندلرهای مدیریت مباحث
     elif data == "edit_topic_name":
