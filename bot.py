@@ -3322,7 +3322,104 @@ async def admin_add_question_to_bank(update: Update, context: ContextTypes.DEFAU
         parse_mode=ParseMode.MARKDOWN,
         reply_markup=reply_markup
     )
+async def handle_topic_selection_for_question_bank(update: Update, context: ContextTypes.DEFAULT_TYPE, topic_id: int):
+    """پردازش انتخاب مبحث برای افزودن سوال به بانک"""
+    try:
+        topic_info = get_topic_by_id(topic_id)
+        if not topic_info:
+            await update.message.reply_text("❌ مبحث یافت نشد!")
+            return
+        
+        topic_id, name, description, is_active = topic_info[0]
+        
+        # ذخیره مبحث و رفتن به مرحله انتخاب منبع
+        context.user_data['question_bank_data'] = {
+            'topic_id': topic_id,
+            'topic_name': name,
+            'step': 'selecting_resource'
+        }
+        
+        keyboard = [
+            [InlineKeyboardButton("🔍 انتخاب منبع", switch_inline_query_current_chat="منبع ")],
+            [InlineKeyboardButton("🔙 بازگشت", callback_data="admin_add_question")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await update.message.reply_text(
+            f"✅ مبحث انتخاب شد: **{name}**\n\n"
+            f"**مرحله ۲/۴: انتخاب منبع**\n\n"
+            f"روی دکمه '🔍 انتخاب منبع' کلیک کنید و منبع سوال را انتخاب کنید:",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=reply_markup
+        )
+        
+    except Exception as e:
+        logger.error(f"Error in topic selection for question bank: {e}")
+        await update.message.reply_text("❌ خطا در پردازش انتخاب مبحث!")
+async def start_custom_quiz_creation(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """شروع ایجاد آزمون سفارشی با انتخاب حالت"""
+    context.user_data['custom_quiz'] = {
+        'step': 'select_mode',
+        'selected_topics': [],
+        'selected_resources': [],
+        'settings': {
+            'count': 20,
+            'time_limit': 30,
+            'difficulty': 'all'
+        }
+    }
+    
+    keyboard = [
+        [InlineKeyboardButton("📚 انتخاب از مباحث", callback_data="select_topics_mode")],
+        [InlineKeyboardButton("📖 انتخاب از منابع", callback_data="select_resources_mode")],
+        [InlineKeyboardButton("🔙 بازگشت به منوی اصلی", callback_data="main_menu")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.callback_query.edit_message_text(
+        "🎯 ساخت آزمون سفارشی\n\n"
+        "لطفاً نوع انتخاب سوالات را مشخص کنید:\n\n"
+        "• 📚 **انتخاب از مباحث**: سوالات بر اساس موضوع درسی انتخاب می‌شوند\n"
+        "• 📖 **انتخاب از منابع**: سوالات بر اساس کتاب‌های درسی انتخاب می‌شوند",
+        reply_markup=reply_markup,
+        parse_mode=ParseMode.MARKDOWN
+    )
 
+async def select_topics_mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """حالت انتخاب از مباحث"""
+    context.user_data['custom_quiz']['mode'] = 'topics'
+    context.user_data['custom_quiz']['step'] = 'select_first_topic'
+    
+    keyboard = [
+        [InlineKeyboardButton("🔍 انتخاب مبحث اول", switch_inline_query_current_chat="مبحث ")],
+        [InlineKeyboardButton("🔙 بازگشت", callback_data="create_custom_quiz")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.callback_query.edit_message_text(
+        "📚 حالت: انتخاب از مباحث\n\n"
+        "مرحله ۱/۴: انتخاب مبحث اول\n\n"
+        "روی دکمه زیر کلیک کنید و مبحث اول را انتخاب کنید:",
+        reply_markup=reply_markup
+    )
+
+async def select_resources_mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """حالت انتخاب از منابع"""
+    context.user_data['custom_quiz']['mode'] = 'resources'
+    context.user_data['custom_quiz']['step'] = 'select_first_resource'
+    
+    keyboard = [
+        [InlineKeyboardButton("🔍 انتخاب منبع اول", switch_inline_query_current_chat="منبع ")],
+        [InlineKeyboardButton("🔙 بازگشت", callback_data="create_custom_quiz")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.callback_query.edit_message_text(
+        "📖 حالت: انتخاب از منابع\n\n"
+        "مرحله ۱/۴: انتخاب منبع اول\n\n"
+        "روی دکمه زیر کلیک کنید و منبع اول را انتخاب کنید:",
+        reply_markup=reply_markup
+    )
 async def inline_query_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.inline_query.query.strip().lower()
     user_id = update.effective_user.id
