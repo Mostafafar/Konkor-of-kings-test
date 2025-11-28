@@ -3294,7 +3294,7 @@ async def start_adding_questions(update: Update, context: ContextTypes.DEFAULT_T
     )
 
 async def admin_add_question_to_bank(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """شروع فرآیند افزودن سوال به بانک"""
+    """شروع فرآیند افزودن سوال به بانک با انتخاب منبع"""
     if update.effective_user.id != ADMIN_ID:
         return
     
@@ -3306,11 +3306,8 @@ async def admin_add_question_to_bank(update: Update, context: ContextTypes.DEFAU
     context.user_data['admin_action'] = 'adding_question_to_bank'
     context.user_data['question_bank_data'] = {
         'step': 'selecting_topic',
-        'flow_type': 'question_bank'  # اضافه کردن شناسه برای تشخیص جریان
+        'flow_type': 'question_bank'
     }
-    
-    logger.info(f"🔧 ADMIN: Context data set - admin_action: {context.user_data.get('admin_action')}")
-    logger.info(f"🔧 ADMIN: Question bank data: {context.user_data.get('question_bank_data')}")
     
     keyboard = [
         [InlineKeyboardButton("🔍 انتخاب مبحث", switch_inline_query_current_chat="مبحث ")],
@@ -3320,14 +3317,11 @@ async def admin_add_question_to_bank(update: Update, context: ContextTypes.DEFAU
     
     await update.callback_query.edit_message_text(
         "📚 افزودن سوال به بانک:\n\n"
-        "**مرحله ۱/۳: انتخاب مبحث**\n\n"
-        "روی دکمه '🔍 انتخاب مبحث' کلیک کنید و مبحث مورد نظر را جستجو و انتخاب کنید.\n\n"
-        "💡 نکته: می‌توانید نام مبحث را تایپ کنید تا جستجو شود.",
+        "**مرحله ۱/۴: انتخاب مبحث**\n\n"
+        "روی دکمه '🔍 انتخاب مبحث' کلیک کنید و مبحث مورد نظر را جستجو و انتخاب کنید.",
         parse_mode=ParseMode.MARKDOWN,
         reply_markup=reply_markup
     )
-    
-    logger.info("🔧 ADMIN: admin_add_question_to_bank completed")
 
 async def inline_query_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.inline_query.query.strip().lower()
