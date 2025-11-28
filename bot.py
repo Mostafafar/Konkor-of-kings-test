@@ -63,7 +63,8 @@ def clear_admin_context(context: ContextTypes.DEFAULT_TYPE):
     """پاک کردن تمام contextهای مربوط به ادمین"""
     keys_to_remove = [
         'admin_quiz', 'quiz_data', 'admin_action', 
-        'question_bank_data', 'editing_topic', 'topic_data'
+        'question_bank_data', 'editing_topic', 'topic_data',
+        'resource_data', 'editing_resource'  # جدید
     ]
     for key in keys_to_remove:
         context.user_data.pop(key, None)
