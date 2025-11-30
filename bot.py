@@ -407,11 +407,6 @@ def toggle_resource_status(resource_id: int):
     )
 
 # تابع اصلاح شده برای افزودن سوال به بانک با منبع
-def add_question_to_bank(topic_id: int, resource_id: int, question_image: str, correct_answer: int):
-    return execute_query('''
-        INSERT INTO question_bank (topic_id, resource_id, question_image, correct_answer)
-        VALUES (%s, %s, %s, %s) RETURNING id
-    ''', (topic_id, resource_id, question_image, correct_answer), return_id=True)
 
 # تابع اصلاح شده برای دریافت سوالات
 def get_questions_by_resources(resource_ids: List[int], difficulty: str = 'all', limit: int = 20):
