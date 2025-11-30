@@ -1682,6 +1682,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             elif quiz_data.get('mode') == 'both' and quiz_data['step'] == 'adding_more_resources':
                 await admin_handle_additional_resource_selection(update, context)
                 return
+        # 1.15 پردازش انتخاب منبع اول برای آزمون ادمین
+        if (text.startswith('منبع انتخاب شده:') and
+            'admin_quiz' in context.user_data and
+            context.user_data['admin_quiz'].get('mode') == 'resources' and
+            context.user_data['admin_quiz'].get('step') == 'select_first_resource'):
+    
+            await admin_handle_first_resource_selection(update, context)
+            return
 
         # 1.14 پردازش پیام همگانی
         if context.user_data.get('admin_action') == 'broadcasting':
