@@ -3485,6 +3485,35 @@ async def handle_topic_selection_for_question_bank(update: Update, context: Cont
     except Exception as e:
         logger.error(f"Error in topic selection for question bank: {e}")
         await update.message.reply_text("❌ خطا در پردازش انتخاب مبحث!")
+async def handle_resource_selection_for_question_bank(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """پردازش انتخاب منبع برای افزودن سوال به بانک"""
+    try:
+        text = update.message.text
+        resource_name = text.replace("منبع انتخاب شده:", "").strip()
+        
+        resource_info = get_resource_by_name(resource_name)
+        if not resource_info:
+            await update.message.reply_text(f"❌ منبع '{resource_name}' یافت نشد!")
+            return
+        
+        resource_id, name, description, is_active = resource_info[0]
+        
+        # ذخیره منبع و رفتن به مرحله دریافت عکس
+        question_data = context.user_data['question_bank_data']
+        question_data['resource_id'] = resource_id
+        question_data['resource_name'] = name
+        question_data['step'] = 'waiting_for_photo'
+        
+        await update.message.reply_text(
+            f"✅ منبع انتخاب شد: **{name}**\n\n"
+            f"**مرحله ۳/۳: ارسال عکس سوال**\n\n"
+            f"📸 لطفاً عکس سوال را ارسال کنید:",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        
+    except Exception as e:
+        logger.error(f"Error in resource selection for question bank: {e}")
+        await update.message.reply_text("❌ خطا در پردازش انتخاب منبع!")
 async def start_custom_quiz_creation(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """شروع ایجاد آزمون سفارشی با انتخاب حالت"""
     context.user_data['custom_quiz'] = {
