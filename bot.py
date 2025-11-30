@@ -929,6 +929,16 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await custom_quiz_settings(update, context)
     elif data == "generate_custom_quiz":
         await generate_custom_quiz(update, context)
+    elif data == "select_topics_mode":
+        await select_topics_mode(update, context)
+    elif data == "select_resources_mode":
+        await select_resources_mode(update, context)
+    
+    # هندلرهای مدیریت منابع
+    elif data == "admin_manage_resources":
+        await admin_manage_resources(update, context)
+    elif data == "admin_add_resource":
+        await admin_add_resource(update, context)
     
     # هندلرهای منوهای تنظیمات
     elif data == "set_count_menu":
