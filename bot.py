@@ -886,7 +886,13 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data.startswith("quiz_ranking_"):
         quiz_id = int(data.split("_")[2])
         await show_quiz_rankings(update, context, quiz_id)
-    
+    # در تابع handle_callback این موارد را اضافه کنید:
+    elif data == "admin_select_topics_mode":
+        await admin_select_topics_mode(update, context)
+    elif data == "admin_select_resources_mode":
+        await admin_select_resources_mode(update, context)
+    elif data == "admin_select_both_mode":
+        await admin_select_both_mode(update, context)    
     # هندلرهای ایجاد آزمون ادمین
     elif data == "admin_ask_title":
         await admin_ask_for_title(update, context)
