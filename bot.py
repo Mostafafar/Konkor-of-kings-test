@@ -1454,6 +1454,11 @@ async def process_time_limit_input(update: Update, context: ContextTypes.DEFAULT
         
     except ValueError:
         await update.message.reply_text("❌ لطفاً یک عدد معتبر وارد کنید:")
+            
+            
+    if (update.effective_user.id == ADMIN_ID and 
+    
+    
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """مدیریت پیام‌های متنی"""
     if update.message.contact:
@@ -1534,9 +1539,27 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             return
     
+    # پردازش انتخاب مبحث برای افزودن سوال به بانک
+    if (update.effective_user.id == ADMIN_ID and 
+        update.message.text and 
+        update.message.text.startswith('مبحث انتخاب شده:') and
+        context.user_data.get('admin_action') == 'adding_question_to_bank' and
+        context.user_data.get('question_bank_data', {}).get('step') == 'selecting_topic'):
+        
+        await handle_topic_selection_for_question_bank(update, context)
+        return
     
+    # پردازش انتخاب منبع برای افزودن سوال به بانک
+    if (update.effective_user.id == ADMIN_ID and 
+        update.message.text and 
+        update.message.text.startswith('منبع انتخاب شده:') and
+        context.user_data.get('admin_action') == 'adding_question_to_bank' and
+        context.user_data.get('question_bank_data', {}).get('step') == 'selecting_resource'):
+        
+        await handle_resource_selection_for_question_bank(update, context)
+        return
     
-    # 🔄 بخش ۱: پردازش آزمون سفارشی کاربر
+    # پردازش آزمون سفارشی کاربر
     if (update.message.text and 
         update.message.text.startswith('مبحث انتخاب شده:') and
         'custom_quiz' in context.user_data):
@@ -1582,7 +1605,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await process_time_limit_input(update, context)
         return
     
-    # 🔄 بخش ۲: پردازش آزمون ادمین به سبک سفارشی
+    # پردازش آزمون ادمین
     if (update.effective_user.id == ADMIN_ID and 
         update.message.text and 
         update.message.text.startswith('مبحث انتخاب شده:') and
@@ -1596,6 +1619,22 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif quiz_data['step'] == 'adding_more_topics':
             await admin_handle_additional_topic_selection(update, context)
             return
+    
+    # پردازش انتخاب منبع برای آزمون ادمین
+    if (update.effective_user.id == ADMIN_ID and 
+        update.message.text and 
+        update.message.text.startswith('منبع انتخاب شده:') and
+        'admin_quiz' in context.user_data):
+        
+        quiz_data = context.user_data['admin_quiz']
+        
+        if quiz_data.get('mode') == 'both' and quiz_data['step'] == 'select_first_resource':
+            await admin_handle_first_resource_selection(update, context)
+            return
+        elif quiz_data.get('mode') == 'both' and quiz_data['step'] == 'adding_more_resources':
+            await admin_handle_additional_resource_selection(update, context)
+            return
+    
     # پردازش عنوان آزمون ادمین
     if (update.effective_user.id == ADMIN_ID and 
         update.message.text and
@@ -1632,27 +1671,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await process_admin_time_limit_input(update, context)
         return
     
-    # 🔄 بخش ۳: پردازش سایر عملیات ادمین (قدیمی)
-    
-    # بررسی اول: اگر ادمین در حال افزودن سوال به بانک است و متن انتخاب مبحث است
-    if (update.effective_user.id == ADMIN_ID and 
-        update.message.text and 
-        update.message.text.startswith('مبحث انتخاب شده:')):
-        
-        # بررسی اینکه آیا در حالت افزودن سوال به بانک هستیم
-        if (context.user_data.get('admin_action') == 'adding_question_to_bank' and
-            context.user_data.get('question_bank_data', {}).get('step') == 'selecting_topic'):
-            
-            await handle_topic_selection_from_message(update, context)
-            return
-    
-    # بررسی دوم: اگر ادمین در حال ارسال پیام همگانی است
+    # پردازش ارسال پیام همگانی
     if (update.effective_user.id == ADMIN_ID and 
         context.user_data.get('admin_action') == 'broadcasting'):
         await handle_broadcast(update, context)
         return
     
-    # بررسی سوم: اگر ادمین در حال افزودن مبحث است
+    # پردازش افزودن مبحث
     if (update.effective_user.id == ADMIN_ID and 
         context.user_data.get('admin_action') == 'adding_topic'):
         
@@ -1692,17 +1717,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 del context.user_data['admin_action']
             return
     
-    # بررسی چهارم: اگر ادمین است و عکس ارسال کرده
+    # پردازش عکس‌های ادمین
     if update.effective_user.id == ADMIN_ID and update.message.photo:
         await handle_admin_photos(update, context)
         return
     
-    # بررسی پنجم: اگر ادمین است و متن ارسال کرده (عملیات قدیمی)
+    # پردازش متن‌های ادمین (عملیات قدیمی)
     if update.effective_user.id == ADMIN_ID and update.message.text:
         await handle_admin_text(update, context)
         return
     
-    # 🔄 بخش ۴: برای کاربران عادی
+    # برای کاربران عادی
     if update.message.text:
         await update.message.reply_text("لطفاً از منوی ربات استفاده کنید.")
 
