@@ -2401,11 +2401,90 @@ async def admin_select_topics_mode(update: Update, context: ContextTypes.DEFAULT
         "روی دکمه زیر کلیک کنید و مبحث اول را انتخاب کنید:",
         reply_markup=reply_markup
     )
+async def admin_handle_first_resource_selection(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """پردازش انتخاب منبع اول برای آزمون ادمین"""
+    try:
+        text = update.message.text
+        resource_name = text.replace("منبع انتخاب شده:", "").strip()
+        
+        resource_info = get_resource_by_name(resource_name)
+        if not resource_info:
+            await update.message.reply_text(f"❌ منبع '{resource_name}' یافت نشد!")
+            return
+        
+        resource_id, name, description, is_active = resource_info[0]
+        
+        # بررسی تعداد سوالات موجود
+        questions_count = get_questions_count_by_resource(resource_id)
+        available_questions = questions_count[0][0] if questions_count else 0
+        
+        if available_questions == 0:
+            await update.message.reply_text(f"❌ هیچ سوالی برای منبع '{name}' در بانک وجود ندارد!")
+            return
+        
+        # افزودن منبع به لیست
+        context.user_data['admin_quiz']['selected_resources'].append(resource_id)
+        context.user_data['admin_quiz']['step'] = 'waiting_for_title'
+        context.user_data['admin_quiz']['first_resource_name'] = name
+        
+        # درخواست عنوان آزمون
+        keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data="admin_back_to_settings")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await update.message.reply_text(
+            f"✅ منبع اول انتخاب شد: **{name}**\n\n"
+            f"📊 سوالات قابل دسترس: {available_questions}\n\n"
+            f"**مرحله ۲/۵: تعیین عنوان آزمون**\n\n"
+            f"لطفاً عنوان آزمون را وارد کنید:",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=reply_markup
+        )
+        
+    except Exception as e:
+        logger.error(f"Error in admin first resource selection: {e}")
+        await update.message.reply_text("❌ خطا در پردازش انتخاب منبع!")
+
+async def admin_handle_additional_resource_selection(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """پردازش انتخاب منابع اضافی برای آزمون ادمین"""
+    try:
+        text = update.message.text
+        resource_name = text.replace("منبع انتخاب شده:", "").strip()
+        
+        resource_info = get_resource_by_name(resource_name)
+        if not resource_info:
+            await update.message.reply_text(f"❌ منبع '{resource_name}' یافت نشد!")
+            return
+        
+        resource_id, name, description, is_active = resource_info[0]
+        
+        # بررسی تکراری نبودن منبع
+        if resource_id in context.user_data['admin_quiz']['selected_resources']:
+            await update.message.reply_text(f"❌ منبع '{name}' قبلاً اضافه شده است!")
+            return
+        
+        # بررسی تعداد سوالات موجود
+        questions_count = get_questions_count_by_resource(resource_id)
+        available_questions = questions_count[0][0] if questions_count else 0
+        
+        if available_questions == 0:
+            await update.message.reply_text(f"❌ هیچ سوالی برای منبع '{name}' در بانک وجود ندارد!")
+            return
+        
+        # افزودن منبع به لیست
+        context.user_data['admin_quiz']['selected_resources'].append(resource_id)
+        
+        # بازگشت به تنظیمات
+        context.user_data['admin_quiz']['step'] = 'settings'
+        await admin_show_settings(update, context)
+        
+    except Exception as e:
+        logger.error(f"Error in admin additional resource selection: {e}")
+        await update.message.reply_text("❌ خطا در پردازش انتخاب منبع!")
 
 async def admin_select_resources_mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """حالت انتخاب از منابع برای آزمون ادمین"""
     context.user_data['admin_quiz']['mode'] = 'resources'
-    context.user_data['admin_quiz']['step'] = 'select_first_resource'
+    context.user_data['admin_quiz']['step'] = 'select_first_resource'  # این خط مهم است
     
     keyboard = [
         [InlineKeyboardButton("🔍 انتخاب منبع اول", switch_inline_query_current_chat="منبع ")],
