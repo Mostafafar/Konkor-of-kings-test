@@ -1458,15 +1458,257 @@ async def process_time_limit_input(update: Update, context: ContextTypes.DEFAULT
             
     
     
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """مدیریت پیام‌های متنی"""
     if update.message.contact:
         await handle_contact(update, context)
         return
     
-    # پردازش انتخاب منبع برای آزمون سفارشی
-    if (update.message.text and 
-        update.message.text.startswith('منبع انتخاب شده:') and
+    user_id = update.effective_user.id
+    text = update.message.text if update.message.text else ""
+    
+    logger.info(f"📝 HANDLE_MESSAGE: User {user_id}, Text: '{text}', Context: {context.user_data}")
+
+    # ===== اولویت 1: پردازش عملیات ادمین =====
+    if user_id == ADMIN_ID:
+        # 1.1 پردازش افزودن منبع جدید
+        if (context.user_data.get('admin_action') == 'adding_resource' and
+            'resource_data' in context.user_data):
+            
+            resource_data = context.user_data['resource_data']
+            
+            if resource_data.get('step') == 'name':
+                resource_name = text.strip()
+                
+                if len(resource_name) < 2:
+                    await update.message.reply_text("❌ نام منبع باید حداقل ۲ کاراکتر باشد!")
+                    return
+                
+                existing_resource = get_resource_by_name(resource_name)
+                if existing_resource:
+                    await update.message.reply_text("❌ منبعی با این نام از قبل وجود دارد!")
+                    return
+                
+                resource_data['name'] = resource_name
+                resource_data['step'] = 'description'
+                
+                await update.message.reply_text(
+                    f"✅ نام منبع ذخیره شد: **{resource_name}**\n\n"
+                    f"لطفاً توضیحات منبع را ارسال کنید (اختیاری):\n\n"
+                    f"💡 می‌توانید 'ندارد' را ارسال کنید تا از توضیحات صرف نظر کنید.",
+                    parse_mode=ParseMode.MARKDOWN
+                )
+                return
+            
+            elif resource_data.get('step') == 'description':
+                description = text.strip()
+                
+                if description == 'ندارد':
+                    description = ""
+                
+                result = add_resource(resource_data['name'], description)
+                
+                if result:
+                    await update.message.reply_text(
+                        f"✅ منبع **{resource_data['name']}** با موفقیت اضافه شد!",
+                        parse_mode=ParseMode.MARKDOWN
+                    )
+                else:
+                    await update.message.reply_text("❌ خطا در افزودن منبع!")
+                
+                # پاک کردن داده‌های موقت
+                context.user_data.pop('resource_data', None)
+                context.user_data.pop('admin_action', None)
+                return
+
+        # 1.2 پردازش انتخاب مبحث برای افزودن سوال به بانک
+        if (text.startswith('مبحث انتخاب شده:') and
+            context.user_data.get('admin_action') == 'adding_question_to_bank' and
+            context.user_data.get('question_bank_data', {}).get('step') == 'selecting_topic'):
+            
+            await handle_topic_selection_for_question_bank(update, context)
+            return
+
+        # 1.3 پردازش انتخاب منبع برای افزودن سوال به بانک
+        if (text.startswith('منبع انتخاب شده:') and
+            context.user_data.get('admin_action') == 'adding_question_to_bank' and
+            context.user_data.get('question_bank_data', {}).get('step') == 'selecting_resource'):
+            
+            await handle_resource_selection_for_question_bank(update, context)
+            return
+
+        # 1.4 پردازش پاسخ صحیح برای سوال بانک
+        if (context.user_data.get('admin_action') == 'adding_question_to_bank' and
+            'question_bank_data' in context.user_data and
+            context.user_data['question_bank_data'].get('step') == 'waiting_for_answer'):
+            
+            try:
+                correct_answer = int(text)
+                if correct_answer < 1 or correct_answer > 4:
+                    raise ValueError("Answer out of range")
+                
+                question_data = context.user_data['question_bank_data']
+                
+                # ذخیره سوال در بانک
+                result = add_question_to_bank(
+                    question_data['topic_id'],
+                    question_data.get('resource_id'),  # می‌تواند None باشد
+                    question_data['question_image'],
+                    correct_answer
+                )
+                
+                if result:
+                    topic_name = question_data.get('topic_name', 'نامشخص')
+                    resource_name = question_data.get('resource_name', 'ندارد')
+                    
+                    success_message = (
+                        f"✅ سوال با موفقیت به بانک اضافه شد!\n\n"
+                        f"📚 مبحث: {topic_name}\n"
+                        f"📖 منبع: {resource_name}\n"
+                        f"📸 عکس: {os.path.basename(question_data['question_image'])}\n"
+                        f"✅ پاسخ صحیح: گزینه {correct_answer}"
+                    )
+                    
+                    await update.message.reply_text(success_message)
+                else:
+                    await update.message.reply_text("❌ خطا در ذخیره سوال!")
+                
+                # پاک کردن داده‌های موقت
+                context.user_data.pop('question_bank_data', None)
+                context.user_data.pop('admin_action', None)
+                
+            except ValueError:
+                await update.message.reply_text("❌ لطفاً عددی بین 1 تا 4 وارد کنید:")
+            except Exception as e:
+                logger.error(f"Error adding question to bank: {e}")
+                await update.message.reply_text("❌ خطا در ذخیره سوال!")
+            return
+
+        # 1.5 پردازش ویرایش نام مبحث
+        if ('editing_topic' in context.user_data and
+            context.user_data['editing_topic'].get('step') == 'waiting_for_new_name'):
+            
+            await process_topic_name_edit(update, context)
+            return
+
+        # 1.6 پردازش ویرایش توضیحات مبحث
+        if ('editing_topic' in context.user_data and
+            context.user_data['editing_topic'].get('step') == 'waiting_for_new_description'):
+            
+            await process_topic_description_edit(update, context)
+            return
+
+        # 1.7 پردازش افزودن مبحث جدید
+        if context.user_data.get('admin_action') == 'adding_topic':
+            topic_data = context.user_data.get('topic_data', {})
+            
+            if topic_data.get('step') == 'name':
+                topic_data['name'] = text
+                topic_data['step'] = 'description'
+                context.user_data['topic_data'] = topic_data
+                
+                await update.message.reply_text(
+                    "✅ نام مبحث ذخیره شد.\n\n"
+                    "لطفاً توضیحات مبحث را ارسال کنید (اختیاری):\n\n"
+                    "💡 می‌توانید 'ندارد' را ارسال کنید تا از توضیحات صرف نظر کنید."
+                )
+                return
+            
+            elif topic_data.get('step') == 'description':
+                description = text if text != 'ندارد' else ""
+                
+                result = add_topic(topic_data['name'], description)
+                
+                if result:
+                    await update.message.reply_text(
+                        f"✅ مبحث '{topic_data['name']}' با موفقیت اضافه شد!"
+                    )
+                else:
+                    await update.message.reply_text(
+                        "❌ خطا در افزودن مبحث! ممکن است مبحثی با این نام از قبل وجود داشته باشد."
+                    )
+                
+                context.user_data.pop('topic_data', None)
+                context.user_data.pop('admin_action', None)
+                return
+
+        # 1.8 پردازش عنوان آزمون ادمین
+        if ('admin_quiz' in context.user_data and
+            context.user_data['admin_quiz'].get('step') == 'waiting_for_title'):
+            
+            await process_admin_title_input(update, context)
+            return
+
+        # 1.9 پردازش توضیحات آزمون ادمین
+        if ('admin_quiz' in context.user_data and
+            context.user_data['admin_quiz'].get('step') == 'waiting_for_description'):
+            
+            await process_admin_description_input(update, context)
+            return
+
+        # 1.10 پردازش تعداد سوالات آزمون ادمین
+        if ('admin_quiz' in context.user_data and
+            context.user_data['admin_quiz'].get('step') == 'waiting_for_count'):
+            
+            await process_admin_question_count_input(update, context)
+            return
+
+        # 1.11 پردازش زمان آزمون ادمین
+        if ('admin_quiz' in context.user_data and
+            context.user_data['admin_quiz'].get('step') == 'waiting_for_time'):
+            
+            await process_admin_time_limit_input(update, context)
+            return
+
+        # 1.12 پردازش انتخاب مبحث برای آزمون ادمین
+        if (text.startswith('مبحث انتخاب شده:') and
+            'admin_quiz' in context.user_data):
+            
+            quiz_data = context.user_data['admin_quiz']
+            
+            if quiz_data['step'] == 'select_first_topic':
+                await admin_handle_first_topic_selection_from_message(update, context)
+                return
+            elif quiz_data['step'] == 'adding_more_topics':
+                await admin_handle_additional_topic_selection(update, context)
+                return
+
+        # 1.13 پردازش انتخاب منبع برای آزمون ادمین
+        if (text.startswith('منبع انتخاب شده:') and
+            'admin_quiz' in context.user_data):
+            
+            quiz_data = context.user_data['admin_quiz']
+            
+            if quiz_data.get('mode') == 'both' and quiz_data['step'] == 'select_first_resource':
+                await admin_handle_first_resource_selection(update, context)
+                return
+            elif quiz_data.get('mode') == 'both' and quiz_data['step'] == 'adding_more_resources':
+                await admin_handle_additional_resource_selection(update, context)
+                return
+
+        # 1.14 پردازش پیام همگانی
+        if context.user_data.get('admin_action') == 'broadcasting':
+            await handle_broadcast(update, context)
+            return
+
+    # ===== اولویت 2: پردازش کاربران عادی =====
+    
+    # 2.1 پردازش انتخاب مبحث برای آزمون سفارشی
+    if (text.startswith('مبحث انتخاب شده:') and
+        'custom_quiz' in context.user_data):
+        
+        quiz_data = context.user_data['custom_quiz']
+        
+        if quiz_data['step'] == 'select_first_topic':
+            await handle_first_topic_selection_from_message(update, context)
+            return
+        elif quiz_data['step'] == 'adding_more_topics':
+            await handle_additional_topic_selection(update, context)
+            return
+
+    # 2.2 پردازش انتخاب منبع برای آزمون سفارشی
+    if (text.startswith('منبع انتخاب شده:') and
         'custom_quiz' in context.user_data):
         
         quiz_data = context.user_data['custom_quiz']
@@ -1478,274 +1720,36 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             elif quiz_data['step'] == 'adding_more_resources':
                 await handle_additional_resource_selection(update, context)
                 return
-    
-    # پردازش انتخاب منبع برای آزمون ادمین - این بخش اضافه شده
-    if (update.effective_user.id == ADMIN_ID and 
-        update.message.text and 
-        update.message.text.startswith('منبع انتخاب شده:') and
-        'admin_quiz' in context.user_data):
-        
-        quiz_data = context.user_data['admin_quiz']
-        
-        if quiz_data.get('mode') == 'resources':
-            if quiz_data['step'] == 'select_first_resource':
-                await admin_handle_first_resource_selection(update, context)
-                return
-            elif quiz_data['step'] == 'adding_more_resources':
-                await admin_handle_additional_resource_selection(update, context)
-                return
-    
-    # بقیه پردازش‌ها...
-    # پردازش افزودن منبع جدید توسط ادمین
-    if (update.effective_user.id == ADMIN_ID and 
-        context.user_data.get('admin_action') == 'adding_resource' and
-        'resource_data' in context.user_data):
-        
-        resource_data = context.user_data['resource_data']
-        
-        if resource_data.get('step') == 'name':
-            # ذخیره نام منبع
-            resource_name = update.message.text.strip()
-            
-            if len(resource_name) < 2:
-                await update.message.reply_text("❌ نام منبع باید حداقل ۲ کاراکتر باشد!")
-                return
-            
-            # بررسی تکراری نبودن نام منبع
-            existing_resource = get_resource_by_name(resource_name)
-            if existing_resource:
-                await update.message.reply_text("❌ منبعی با این نام از قبل وجود دارد!")
-                return
-            
-            resource_data['name'] = resource_name
-            resource_data['step'] = 'description'
-            context.user_data['resource_data'] = resource_data
-            
-            await update.message.reply_text(
-                f"✅ نام منبع ذخیره شد: **{resource_name}**\n\n"
-                f"لطفاً توضیحات منبع را ارسال کنید (اختیاری):\n\n"
-                f"💡 می‌توانید 'ندارد' را ارسال کنید تا از توضیحات صرف نظر کنید.",
-                parse_mode=ParseMode.MARKDOWN
-            )
-            return
-        
-        elif resource_data.get('step') == 'description':
-            # ذخیره توضیحات منبع
-            description = update.message.text.strip()
-            
-            if description == 'ندارد':
-                description = ""
-            
-            # ذخیره منبع در دیتابیس
-            result = add_resource(resource_data['name'], description)
-            
-            if result:
-                await update.message.reply_text(
-                    f"✅ منبع **{resource_data['name']}** با موفقیت اضافه شد!",
-                    parse_mode=ParseMode.MARKDOWN
-                )
-            else:
-                await update.message.reply_text("❌ خطا در افزودن منبع!")
-            
-            # پاک کردن داده‌های موقت
-            if 'resource_data' in context.user_data:
-                del context.user_data['resource_data']
-            if 'admin_action' in context.user_data:
-                del context.user_data['admin_action']
-            
-            return
-    
-    # پردازش انتخاب مبحث برای افزودن سوال به بانک
-    if (update.effective_user.id == ADMIN_ID and 
-        update.message.text and 
-        update.message.text.startswith('مبحث انتخاب شده:') and
-        context.user_data.get('admin_action') == 'adding_question_to_bank' and
-        context.user_data.get('question_bank_data', {}).get('step') == 'selecting_topic'):
-        
-        await handle_topic_selection_for_question_bank(update, context)
-        return
-    
-    # پردازش انتخاب منبع برای افزودن سوال به بانک
-    if (update.effective_user.id == ADMIN_ID and 
-        update.message.text and 
-        update.message.text.startswith('منبع انتخاب شده:') and
-        context.user_data.get('admin_action') == 'adding_question_to_bank' and
-        context.user_data.get('question_bank_data', {}).get('step') == 'selecting_resource'):
-        
-        await handle_resource_selection_for_question_bank(update, context)
-        return
-    
-    # پردازش آزمون سفارشی کاربر
-    if (update.message.text and 
-        update.message.text.startswith('مبحث انتخاب شده:') and
-        'custom_quiz' in context.user_data):
-        
-        quiz_data = context.user_data['custom_quiz']
-        
-        if quiz_data['step'] == 'select_first_topic':
-            await handle_first_topic_selection_from_message(update, context)
-            return
-        elif quiz_data['step'] == 'adding_more_topics':
-            await handle_additional_topic_selection(update, context)
-            return
-    
-    # پردازش تعداد سوالات آزمون سفارشی
-    if (update.message.text and 
-        'custom_quiz' in context.user_data and
-        context.user_data['custom_quiz']['step'] == 'waiting_for_count'):
+
+    # 2.3 پردازش تعداد سوالات آزمون سفارشی
+    if ('custom_quiz' in context.user_data and
+        context.user_data['custom_quiz'].get('step') == 'waiting_for_count'):
         
         await process_question_count_input(update, context)
         return
 
-    # پردازش ویرایش نام مبحث
-    if (update.effective_user.id == ADMIN_ID and 
-        'editing_topic' in context.user_data and
-        context.user_data['editing_topic']['step'] == 'waiting_for_new_name'):
-        
-        await process_topic_name_edit(update, context)
-        return
-
-    # پردازش ویرایش توضیحات مبحث
-    if (update.effective_user.id == ADMIN_ID and 
-        'editing_topic' in context.user_data and
-        context.user_data['editing_topic']['step'] == 'waiting_for_new_description'):
-        
-        await process_topic_description_edit(update, context)
-        return
-    
-    # پردازش زمان آزمون سفارشی
-    if (update.message.text and 
-        'custom_quiz' in context.user_data and
-        context.user_data['custom_quiz']['step'] == 'waiting_for_time'):
+    # 2.4 پردازش زمان آزمون سفارشی
+    if ('custom_quiz' in context.user_data and
+        context.user_data['custom_quiz'].get('step') == 'waiting_for_time'):
         
         await process_time_limit_input(update, context)
         return
+
+    # ===== پردازش پیشفرض =====
     
-    # پردازش آزمون ادمین
-    if (update.effective_user.id == ADMIN_ID and 
-        update.message.text and 
-        update.message.text.startswith('مبحث انتخاب شده:') and
-        'admin_quiz' in context.user_data):
-        
-        quiz_data = context.user_data['admin_quiz']
-        
-        if quiz_data['step'] == 'select_first_topic':
-            await admin_handle_first_topic_selection_from_message(update, context)
-            return
-        elif quiz_data['step'] == 'adding_more_topics':
-            await admin_handle_additional_topic_selection(update, context)
-            return
-    
-    # پردازش انتخاب منبع برای آزمون ادمین
-    if (update.effective_user.id == ADMIN_ID and 
-        update.message.text and 
-        update.message.text.startswith('منبع انتخاب شده:') and
-        'admin_quiz' in context.user_data):
-        
-        quiz_data = context.user_data['admin_quiz']
-        
-        if quiz_data.get('mode') == 'both' and quiz_data['step'] == 'select_first_resource':
-            await admin_handle_first_resource_selection(update, context)
-            return
-        elif quiz_data.get('mode') == 'both' and quiz_data['step'] == 'adding_more_resources':
-            await admin_handle_additional_resource_selection(update, context)
-            return
-    
-    # پردازش عنوان آزمون ادمین
-    if (update.effective_user.id == ADMIN_ID and 
-        update.message.text and
-        'admin_quiz' in context.user_data and
-        context.user_data['admin_quiz']['step'] == 'waiting_for_title'):
-        
-        await process_admin_title_input(update, context)
-        return
-    
-    # پردازش توضیحات آزمون ادمین
-    if (update.effective_user.id == ADMIN_ID and 
-        update.message.text and
-        'admin_quiz' in context.user_data and
-        context.user_data['admin_quiz']['step'] == 'waiting_for_description'):
-        
-        await process_admin_description_input(update, context)
-        return
-    
-    # پردازش تعداد سوالات آزمون ادمین
-    if (update.effective_user.id == ADMIN_ID and 
-        update.message.text and
-        'admin_quiz' in context.user_data and
-        context.user_data['admin_quiz']['step'] == 'waiting_for_count'):
-        
-        await process_admin_question_count_input(update, context)
-        return
-    
-    # پردازش زمان آزمون ادمین
-    if (update.effective_user.id == ADMIN_ID and 
-        update.message.text and
-        'admin_quiz' in context.user_data and
-        context.user_data['admin_quiz']['step'] == 'waiting_for_time'):
-        
-        await process_admin_time_limit_input(update, context)
-        return
-    
-    # پردازش ارسال پیام همگانی
-    if (update.effective_user.id == ADMIN_ID and 
-        context.user_data.get('admin_action') == 'broadcasting'):
-        await handle_broadcast(update, context)
-        return
-    
-    # پردازش افزودن مبحث
-    if (update.effective_user.id == ADMIN_ID and 
-        context.user_data.get('admin_action') == 'adding_topic'):
-        
-        text = update.message.text
-        topic_data = context.user_data.get('topic_data', {})
-        
-        if topic_data.get('step') == 'name':
-            topic_data['name'] = text
-            topic_data['step'] = 'description'
-            context.user_data['topic_data'] = topic_data
-            
-            await update.message.reply_text(
-                "✅ نام مبحث ذخیره شد.\n\n"
-                "لطفاً توضیحات مبحث را ارسال کنید (اختیاری):\n\n"
-                "💡 می‌توانید 'ندارد' را ارسال کنید تا از توضیحات صرف نظر کنید."
-            )
-            return
-        elif topic_data.get('step') == 'description':
-            description = text if text != 'ندارد' else ""
-            
-            # ذخیره مبحث در دیتابیس
-            result = add_topic(topic_data['name'], description)
-            
-            if result:
-                await update.message.reply_text(
-                    f"✅ مبحث '{topic_data['name']}' با موفقیت اضافه شد!"
-                )
-            else:
-                await update.message.reply_text(
-                    "❌ خطا در افزودن مبحث! ممکن است مبحثی با این نام از قبل وجود داشته باشد."
-                )
-            
-            # پاک کردن داده‌های موقت
-            if 'topic_data' in context.user_data:
-                del context.user_data['topic_data']
-            if 'admin_action' in context.user_data:
-                del context.user_data['admin_action']
-            return
-    
-    # پردازش عکس‌های ادمین
-    if update.effective_user.id == ADMIN_ID and update.message.photo:
-        await handle_admin_photos(update, context)
-        return
-    
-    # پردازش متن‌های ادمین (عملیات قدیمی)
-    if update.effective_user.id == ADMIN_ID and update.message.text:
-        await handle_admin_text(update, context)
+    # برای ادمین: نمایش پیام راهنما
+    if user_id == ADMIN_ID:
+        await update.message.reply_text(
+            "🔧 دستور نامعتبر!\n\n"
+            "لطفاً از منوی ادمین استفاده کنید یا دستور معتبری ارسال کنید."
+        )
         return
     
     # برای کاربران عادی
-    if update.message.text:
-        await update.message.reply_text("لطفاً از منوی ربات استفاده کنید.")
+    await update.message.reply_text(
+        "لطفاً از منوی ربات استفاده کنید.\n\n"
+        "برای شروع می‌توانید از دستور /start استفاده کنید."
+           )
 
 async def handle_topic_selection_from_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """پردازش انتخاب مبحث از طریق پیام"""
