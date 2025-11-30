@@ -1456,7 +1456,6 @@ async def process_time_limit_input(update: Update, context: ContextTypes.DEFAULT
         await update.message.reply_text("❌ لطفاً یک عدد معتبر وارد کنید:")
             
             
-    if (update.effective_user.id == ADMIN_ID and 
     
     
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
