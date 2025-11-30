@@ -1479,6 +1479,23 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await handle_additional_resource_selection(update, context)
                 return
     
+    # پردازش انتخاب منبع برای آزمون ادمین - این بخش اضافه شده
+    if (update.effective_user.id == ADMIN_ID and 
+        update.message.text and 
+        update.message.text.startswith('منبع انتخاب شده:') and
+        'admin_quiz' in context.user_data):
+        
+        quiz_data = context.user_data['admin_quiz']
+        
+        if quiz_data.get('mode') == 'resources':
+            if quiz_data['step'] == 'select_first_resource':
+                await admin_handle_first_resource_selection(update, context)
+                return
+            elif quiz_data['step'] == 'adding_more_resources':
+                await admin_handle_additional_resource_selection(update, context)
+                return
+    
+    # بقیه پردازش‌ها...
     # پردازش افزودن منبع جدید توسط ادمین
     if (update.effective_user.id == ADMIN_ID and 
         context.user_data.get('admin_action') == 'adding_resource' and
