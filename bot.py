@@ -500,11 +500,12 @@ def add_topic(name: str, description: str = ""):
     )
 
 # توابع بانک سوالات
-def add_question_to_bank(topic_id: int, question_image: str, correct_answer: int):
+def add_question_to_bank(topic_id: int, resource_id: int, question_image: str, correct_answer: int):
+    """افزودن سوال به بانک با مبحث و منبع"""
     return execute_query('''
-        INSERT INTO question_bank (topic_id, question_image, correct_answer)
-        VALUES (%s, %s, %s) RETURNING id
-    ''', (topic_id, question_image, correct_answer), return_id=True)
+        INSERT INTO question_bank (topic_id, resource_id, question_image, correct_answer)
+        VALUES (%s, %s, %s, %s) RETURNING id
+    ''', (topic_id, resource_id, question_image, correct_answer), return_id=True)
 
 def get_questions_by_topics(topic_ids: List[int], difficulty: str = 'all', limit: int = 20):
     if not topic_ids:
