@@ -2299,7 +2299,7 @@ async def show_quiz_rankings(update: Update, context: ContextTypes.DEFAULT_TYPE,
 # توابع مدیریت ادمین
 
 async def admin_create_quiz(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """شروع فرآیند ایجاد آزمون جدید به سبک سفارشی"""
+    """شروع فرآیند ایجاد آزمون جدید با انتخاب مبحث و منبع"""
     if update.effective_user.id != ADMIN_ID:
         return
     
@@ -2307,8 +2307,9 @@ async def admin_create_quiz(update: Update, context: ContextTypes.DEFAULT_TYPE):
     clear_admin_context(context)
     
     context.user_data['admin_quiz'] = {
-        'step': 'select_first_topic',
+        'step': 'select_mode',
         'selected_topics': [],
+        'selected_resources': [],
         'settings': {
             'title': '',
             'description': '',
@@ -2320,14 +2321,73 @@ async def admin_create_quiz(update: Update, context: ContextTypes.DEFAULT_TYPE):
     }
     
     keyboard = [
-        [InlineKeyboardButton("🔍 انتخاب مبحث اول", switch_inline_query_current_chat="")],
+        [InlineKeyboardButton("📚 انتخاب از مباحث", callback_data="admin_select_topics_mode")],
+        [InlineKeyboardButton("📖 انتخاب از منابع", callback_data="admin_select_resources_mode")],
+        [InlineKeyboardButton("📚📖 انتخاب از مباحث و منابع", callback_data="admin_select_both_mode")],
         [InlineKeyboardButton("🔙 بازگشت به پنل ادمین", callback_data="admin_panel")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     await update.callback_query.edit_message_text(
         "🎯 ایجاد آزمون جدید (ادمین)\n\n"
+        "لطفاً نوع انتخاب سوالات را مشخص کنید:\n\n"
+        "• 📚 **انتخاب از مباحث**: سوالات بر اساس موضوع درسی\n"
+        "• 📖 **انتخاب از منابع**: سوالات بر اساس کتاب‌های درسی\n"
+        "• 📚📖 **انتخاب از مباحث و منابع**: ترکیبی از هر دو",
+        parse_mode=ParseMode.MARKDOWN,
+        reply_markup=reply_markup
+    )
+async def admin_select_topics_mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """حالت انتخاب از مباحث برای آزمون ادمین"""
+    context.user_data['admin_quiz']['mode'] = 'topics'
+    context.user_data['admin_quiz']['step'] = 'select_first_topic'
+    
+    keyboard = [
+        [InlineKeyboardButton("🔍 انتخاب مبحث اول", switch_inline_query_current_chat="مبحث ")],
+        [InlineKeyboardButton("🔙 بازگشت", callback_data="admin_create_quiz")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.callback_query.edit_message_text(
+        "📚 حالت: انتخاب از مباحث\n\n"
         "مرحله ۱/۵: انتخاب مبحث اول\n\n"
+        "روی دکمه زیر کلیک کنید و مبحث اول را انتخاب کنید:",
+        reply_markup=reply_markup
+    )
+
+async def admin_select_resources_mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """حالت انتخاب از منابع برای آزمون ادمین"""
+    context.user_data['admin_quiz']['mode'] = 'resources'
+    context.user_data['admin_quiz']['step'] = 'select_first_resource'
+    
+    keyboard = [
+        [InlineKeyboardButton("🔍 انتخاب منبع اول", switch_inline_query_current_chat="منبع ")],
+        [InlineKeyboardButton("🔙 بازگشت", callback_data="admin_create_quiz")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.callback_query.edit_message_text(
+        "📖 حالت: انتخاب از منابع\n\n"
+        "مرحله ۱/۵: انتخاب منبع اول\n\n"
+        "روی دکمه زیر کلیک کنید و منبع اول را انتخاب کنید:",
+        reply_markup=reply_markup
+    )
+
+async def admin_select_both_mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """حالت انتخاب از مباحث و منابع برای آزمون ادمین"""
+    context.user_data['admin_quiz']['mode'] = 'both'
+    context.user_data['admin_quiz']['step'] = 'select_first_topic'
+    
+    keyboard = [
+        [InlineKeyboardButton("🔍 انتخاب مبحث اول", switch_inline_query_current_chat="مبحث ")],
+        [InlineKeyboardButton("🔙 بازگشت", callback_data="admin_create_quiz")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.callback_query.edit_message_text(
+        "📚📖 حالت: انتخاب از مباحث و منابع\n\n"
+        "مرحله ۱/۶: انتخاب مبحث اول\n\n"
+        "ابتدا مباحث مورد نظر را انتخاب کنید، سپس منابع را انتخاب خواهید کرد.\n\n"
         "روی دکمه زیر کلیک کنید و مبحث اول را انتخاب کنید:",
         reply_markup=reply_markup
     )
