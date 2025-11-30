@@ -3420,7 +3420,7 @@ async def start_adding_questions(update: Update, context: ContextTypes.DEFAULT_T
     )
 
 async def admin_add_question_to_bank(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """شروع فرآیند افزودن سوال به بانک با انتخاب منبع"""
+    """شروع فرآیند افزودن سوال به بانک با انتخاب مبحث و منبع"""
     if update.effective_user.id != ADMIN_ID:
         return
     
@@ -3443,17 +3443,20 @@ async def admin_add_question_to_bank(update: Update, context: ContextTypes.DEFAU
     
     await update.callback_query.edit_message_text(
         "📚 افزودن سوال به بانک:\n\n"
-        "**مرحله ۱/۴: انتخاب مبحث**\n\n"
+        "**مرحله ۱/۳: انتخاب مبحث**\n\n"
         "روی دکمه '🔍 انتخاب مبحث' کلیک کنید و مبحث مورد نظر را جستجو و انتخاب کنید.",
         parse_mode=ParseMode.MARKDOWN,
         reply_markup=reply_markup
     )
-async def handle_topic_selection_for_question_bank(update: Update, context: ContextTypes.DEFAULT_TYPE, topic_id: int):
+async def handle_topic_selection_for_question_bank(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """پردازش انتخاب مبحث برای افزودن سوال به بانک"""
     try:
-        topic_info = get_topic_by_id(topic_id)
+        text = update.message.text
+        topic_name = text.replace("مبحث انتخاب شده:", "").strip()
+        
+        topic_info = get_topic_by_name(topic_name)
         if not topic_info:
-            await update.message.reply_text("❌ مبحث یافت نشد!")
+            await update.message.reply_text(f"❌ مبحث '{topic_name}' یافت نشد!")
             return
         
         topic_id, name, description, is_active = topic_info[0]
@@ -3473,7 +3476,7 @@ async def handle_topic_selection_for_question_bank(update: Update, context: Cont
         
         await update.message.reply_text(
             f"✅ مبحث انتخاب شد: **{name}**\n\n"
-            f"**مرحله ۲/۴: انتخاب منبع**\n\n"
+            f"**مرحله ۲/۳: انتخاب منبع**\n\n"
             f"روی دکمه '🔍 انتخاب منبع' کلیک کنید و منبع سوال را انتخاب کنید:",
             parse_mode=ParseMode.MARKDOWN,
             reply_markup=reply_markup
