@@ -2711,30 +2711,99 @@ async def process_admin_time_limit_input(update: Update, context: ContextTypes.D
     except ValueError:
         await update.message.reply_text("❌ لطفاً یک عدد معتبر وارد کنید:")
 async def admin_generate_quiz(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """ایجاد نهایی آزمون توسط ادمین"""
+    """ایجاد نهایی آزمون توسط ادمین با پشتیبانی از همه حالت‌ها"""
     try:
         quiz_data = context.user_data['admin_quiz']
         settings = quiz_data['settings']
+        mode = quiz_data.get('mode', 'topics')
         
         # اعتبارسنجی داده‌ها
         if not settings['title']:
             await update.callback_query.answer("❌ لطفاً عنوان آزمون را تعیین کنید!", show_alert=True)
             return
         
-        if not quiz_data['selected_topics']:
+        # اعتبارسنجی بر اساس حالت انتخاب شده
+        if mode == 'topics' and not quiz_data['selected_topics']:
             await update.callback_query.answer("❌ لطفاً حداقل یک مبحث انتخاب کنید!", show_alert=True)
             return
+        elif mode == 'resources' and not quiz_data['selected_resources']:
+            await update.callback_query.answer("❌ لطفاً حداقل یک منبع انتخاب کنید!", show_alert=True)
+            return
+        elif mode == 'both' and not quiz_data['selected_topics'] and not quiz_data['selected_resources']:
+            await update.callback_query.answer("❌ لطفاً حداقل یک مبحث یا منبع انتخاب کنید!", show_alert=True)
+            return
         
-        # دریافت سوالات از بانک
-        questions = get_questions_by_topics(
-            quiz_data['selected_topics'],
-            settings['difficulty'],
-            settings['count']
-        )
+        # دریافت سوالات بر اساس حالت انتخاب شده
+        questions = []
+        total_available = 0
+        
+        if mode == 'topics':
+            questions = get_questions_by_topics(
+                quiz_data['selected_topics'],
+                settings['difficulty'],
+                settings['count']
+            )
+            # محاسبه سوالات قابل دسترس
+            for topic_id in quiz_data['selected_topics']:
+                count_result = get_questions_count_by_topic(topic_id)
+                total_available += count_result[0][0] if count_result else 0
+                
+        elif mode == 'resources':
+            questions = get_questions_by_resources(
+                quiz_data['selected_resources'],
+                settings['difficulty'],
+                settings['count']
+            )
+            # محاسبه سوالات قابل دسترس
+            for resource_id in quiz_data['selected_resources']:
+                count_result = get_questions_count_by_resource(resource_id)
+                total_available += count_result[0][0] if count_result else 0
+                
+        elif mode == 'both':
+            # ترکیب سوالات از مباحث و منابع
+            topic_questions = []
+            resource_questions = []
+            
+            if quiz_data['selected_topics']:
+                topic_questions = get_questions_by_topics(
+                    quiz_data['selected_topics'],
+                    settings['difficulty'],
+                    settings['count'] // 2
+                )
+                # محاسبه سوالات قابل دسترس از مباحث
+                for topic_id in quiz_data['selected_topics']:
+                    count_result = get_questions_count_by_topic(topic_id)
+                    total_available += count_result[0][0] if count_result else 0
+            
+            if quiz_data['selected_resources']:
+                remaining_count = settings['count'] - len(topic_questions)
+                if remaining_count > 0:
+                    resource_questions = get_questions_by_resources(
+                        quiz_data['selected_resources'],
+                        settings['difficulty'],
+                        remaining_count
+                    )
+                # محاسبه سوالات قابل دسترس از منابع
+                for resource_id in quiz_data['selected_resources']:
+                    count_result = get_questions_count_by_resource(resource_id)
+                    total_available += count_result[0][0] if count_result else 0
+            
+            questions = topic_questions + resource_questions
         
         if not questions:
-            await update.callback_query.answer("❌ هیچ سوالی برای مباحث انتخاب شده یافت نشد!", show_alert=True)
+            await update.callback_query.answer(
+                f"❌ هیچ سوالی برای انتخاب‌های شما یافت نشد!\n\n"
+                f"سوالات قابل دسترس: {total_available}",
+                show_alert=True
+            )
             return
+        
+        # اگر تعداد سوالات کمتر از تعداد درخواستی باشد
+        if len(questions) < settings['count']:
+            await update.callback_query.answer(
+                f"⚠️ فقط {len(questions)} سوال از {settings['count']} سوال درخواستی موجود بود!",
+                show_alert=True
+            )
         
         # ایجاد آزمون در دیتابیس
         quiz_id = create_quiz(
@@ -2756,15 +2825,39 @@ async def admin_generate_quiz(update: Update, context: ContextTypes.DEFAULT_TYPE
         if 'admin_quiz' in context.user_data:
             del context.user_data['admin_quiz']
         
+        # ایجاد متن موفقیت بر اساس حالت
+        mode_texts = {
+            'topics': f"مباحث: {len(quiz_data['selected_topics'])} مبحث",
+            'resources': f"منابع: {len(quiz_data['selected_resources'])} منبع", 
+            'both': f"مباحث: {len(quiz_data['selected_topics'])}، منابع: {len(quiz_data['selected_resources'])}"
+        }
+        
+        # نمایش نام مباحث و منابع انتخاب شده
+        selected_items_text = ""
+        if mode == 'topics' and quiz_data['selected_topics']:
+            topic_names = [get_topic_name(tid) for tid in quiz_data['selected_topics']]
+            selected_items_text = "\n📚 مباحث انتخاب شده:\n" + "\n".join([f"• {name}" for name in topic_names])
+        elif mode == 'resources' and quiz_data['selected_resources']:
+            resource_names = [get_resource_name(rid) for rid in quiz_data['selected_resources']]
+            selected_items_text = "\n📖 منابع انتخاب شده:\n" + "\n".join([f"• {name}" for name in resource_names])
+        elif mode == 'both':
+            if quiz_data['selected_topics']:
+                topic_names = [get_topic_name(tid) for tid in quiz_data['selected_topics']]
+                selected_items_text += "\n📚 مباحث انتخاب شده:\n" + "\n".join([f"• {name}" for name in topic_names])
+            if quiz_data['selected_resources']:
+                resource_names = [get_resource_name(rid) for rid in quiz_data['selected_resources']]
+                selected_items_text += "\n📖 منابع انتخاب شده:\n" + "\n".join([f"• {name}" for name in resource_names])
+        
         # نمایش پیام موفقیت
         success_message = (
             f"✅ آزمون ادمین با موفقیت ایجاد شد!\n\n"
             f"📌 عنوان: {settings['title']}\n"
             f"📝 توضیحات: {settings['description'] or 'ندارد'}\n"
-            f"📚 مباحث: {len(quiz_data['selected_topics'])} مبحث\n"
-            f"📊 تعداد سوالات: {len(questions)}\n"
+            f"🎯 حالت انتخاب: {mode_texts.get(mode, 'مباحث')}\n"
+            f"📊 تعداد سوالات: {len(questions)} از {settings['count']} درخواستی\n"
             f"⏱ زمان: {settings['time_limit']} دقیقه\n"
-            f"🎯 سطح سختی: {settings['difficulty']}\n\n"
+            f"🎯 سطح سختی: {settings['difficulty']}"
+            f"{selected_items_text}\n\n"
             f"آزمون اکنون در لیست آزمون‌های فعال قابل مشاهده است. 👑"
         )
         
@@ -2776,8 +2869,14 @@ async def admin_generate_quiz(update: Update, context: ContextTypes.DEFAULT_TYPE
         
         await update.callback_query.edit_message_text(success_message, reply_markup=reply_markup)
         
+        # لاگ کردن اطلاعات آزمون
+        logger.info(f"✅ ADMIN_QUIZ_CREATED: Title: {settings['title']}, "
+                   f"Questions: {len(questions)}, Mode: {mode}, "
+                   f"Topics: {len(quiz_data.get('selected_topics', []))}, "
+                   f"Resources: {len(quiz_data.get('selected_resources', []))}")
+        
     except Exception as e:
-        logger.error(f"Error in admin generate quiz: {e}")
+        logger.error(f"❌ Error in admin generate quiz: {e}")
         await update.callback_query.answer("❌ خطا در ایجاد آزمون!", show_alert=True)
 async def admin_add_more_topics(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """افزودن مباحث بیشتر به آزمون ادمین"""
