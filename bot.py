@@ -1658,18 +1658,23 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         # 1.12 پردازش انتخاب مبحث برای آزمون ادمین
+        # در تابع handle_message، بخش پردازش انتخاب مبحث برای آزمون ادمین:
+
+# 1.12 پردازش انتخاب مبحث برای آزمون ادمین
         if (text.startswith('مبحث انتخاب شده:') and
             'admin_quiz' in context.user_data):
-            
+    
             quiz_data = context.user_data['admin_quiz']
-            
+            mode = quiz_data.get('mode', 'topics')
+    
             if quiz_data['step'] == 'select_first_topic':
-                await admin_handle_first_topic_selection_from_message(update, context)
-                return
+               if mode in ['topics', 'both']:
+                  await admin_handle_first_topic_selection(update, context)
+                  return
             elif quiz_data['step'] == 'adding_more_topics':
-                await admin_handle_additional_topic_selection(update, context)
-                return
-
+              if mode in ['topics', 'both']:
+                   await admin_handle_additional_topic_selection(update, context)
+                   return
         # 1.13 پردازش انتخاب منبع برای آزمون ادمین
         if (text.startswith('منبع انتخاب شده:') and
             'admin_quiz' in context.user_data):
