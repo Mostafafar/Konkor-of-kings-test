@@ -3310,15 +3310,19 @@ async def handle_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     total_users = len(users)
+    logger.info(f"📊 BROADCAST: Found {total_users} users in database")
+    
     successful_sends = 0
     failed_sends = 0
+    errors_log = []
     
     # اطلاع رسانی شروع ارسال
     progress_msg = await update.message.reply_text(
         f"📤 شروع ارسال پیام به {total_users} کاربر...\n\n"
         f"✅ موفق: 0\n"
         f"❌ ناموفق: 0\n"
-        f"📊 پیشرفت: 0%"
+        f"📊 پیشرفت: 0%\n"
+        f"🔄 در حال ارسال..."
     )
     
     # ارسال به کاربران
@@ -3326,6 +3330,9 @@ async def handle_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = user[0]
         
         try:
+            # لاگ کردن برای دیباگ
+            logger.info(f"📨 BROADCAST: Attempting to send to user {user_id}")
+            
             # اگر پیام دارای عکس است
             if update.message.photo:
                 photo_file = await update.message.photo[-1].get_file()
@@ -3348,26 +3355,30 @@ async def handle_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
             
             successful_sends += 1
+            logger.info(f"✅ BROADCAST: Successfully sent to user {user_id}")
             
         except Exception as e:
-            logger.error(f"Failed to send message to user {user_id}: {e}")
+            error_msg = f"Failed to send to user {user_id}: {str(e)}"
+            logger.error(error_msg)
+            errors_log.append(error_msg[:100])  # ذخیره ۱۰۰ کاراکتر اول خطا
             failed_sends += 1
         
-        # بروزرسانی پیشرفت هر 10 کاربر
-        if (index + 1) % 10 == 0 or (index + 1) == total_users:
+        # بروزرسانی پیشرفت هر ۵ کاربر
+        if (index + 1) % 5 == 0 or (index + 1) == total_users:
             progress = ((index + 1) / total_users) * 100
             try:
                 await progress_msg.edit_text(
                     f"📤 ارسال پیام به کاربران...\n\n"
                     f"✅ موفق: {successful_sends}\n"
                     f"❌ ناموفق: {failed_sends}\n"
-                    f"📊 پیشرفت: {progress:.1f}%"
+                    f"📊 پیشرفت: {progress:.1f}%\n"
+                    f"🆔 آخرین: {user_id}"
                 )
-            except:
-                pass
+            except Exception as e:
+                logger.error(f"Failed to update progress: {e}")
         
-        # تاخیر کوچک برای جلوگیری از محدودیت تلگرام
-        await asyncio.sleep(0.1)
+        # تاخیر برای جلوگیری از محدودیت تلگرام
+        await asyncio.sleep(0.2)
     
     # نتیجه نهایی
     result_text = (
@@ -3378,6 +3389,11 @@ async def handle_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"• ❌ ارسال ناموفق: {failed_sends}\n"
         f"• 📈 نرخ موفقیت: {(successful_sends/total_users)*100:.1f}%"
     )
+    
+    # اضافه کردن نمونه‌ای از خطاها اگر وجود داشته باشد
+    if errors_log and len(errors_log) > 0:
+        sample_errors = "\n".join(errors_log[:3])  # ۳ خطای اول
+        result_text += f"\n\n⚠️ نمونه خطاها:\n{sample_errors}"
     
     keyboard = [[InlineKeyboardButton("🔙 بازگشت به پنل ادمین", callback_data="admin_panel")]]
     reply_markup = InlineKeyboardMarkup(keyboard)
