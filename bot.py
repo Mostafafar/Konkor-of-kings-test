@@ -736,6 +736,9 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await add_more_topics(update, context)
     elif data == "back_to_initial_settings":
         await back_to_initial_settings(update, context)
+    # در تابع handle_callback (حدود خط 500) این موارد را اضافه کنید:
+    elif data == "add_more_resources":
+        await add_more_resources(update, context)
     
     # هندلرهای جدید برای مدیریت منابع
     elif data == "admin_manage_resources":
