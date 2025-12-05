@@ -4624,6 +4624,61 @@ def toggle_quiz_status(quiz_id: int):
         SET is_active = NOT is_active 
         WHERE id = %s
     ''', (quiz_id,))
+async def invite_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """دستور دستی برای ارسال دعوت به کاربران قبلی"""
+    if update.effective_user.id != ADMIN_ID:
+        await update.message.reply_text("❌ این دستور فقط برای ادمین است!")
+        return
+    
+    await update.message.reply_text(
+        "📨 شروع ارسال دعوت به کاربران قبلی...\n"
+        "لطفاً منتظر بمانید."
+    )
+    
+    users = get_all_users()
+    successful_sends = 0
+    failed_sends = 0
+    
+    # دریافت لینک ربات
+    bot_username = (await context.bot.get_me()).username
+    bot_link = f"https://t.me/{bot_username}"
+    
+    invitation_message = (
+        "🎉 ربات جدید ما راه‌اندازی شد!\n\n"
+        "برای استفاده از امکانات جدید، لطفاً روی لینک زیر کلیک کنید:\n"
+        f"{bot_link}\n\n"
+        "با تشکر از همراهی شما! 🤖"
+    )
+    
+    for user in users:
+        user_id = user[0]
+        
+        try:
+            await context.bot.send_message(
+                chat_id=user_id,
+                text=invitation_message,
+                disable_web_page_preview=False
+            )
+            successful_sends += 1
+            
+        except Exception as e:
+            logger.error(f"Failed to send to user {user_id}: {e}")
+            failed_sends += 1
+        
+        # تاخیر برای جلوگیری از محدودیت
+        await asyncio.sleep(0.2)
+    
+    # نتیجه نهایی
+    result_text = (
+        f"✅ ارسال دعوت تکمیل شد!\n\n"
+        f"📊 نتایج:\n"
+        f"• 👥 کل کاربران: {len(users)}\n"
+        f"• ✅ ارسال موفق: {successful_sends}\n"
+        f"• ❌ ارسال ناموفق: {failed_sends}\n\n"
+        f"لینک ربات: {bot_link}"
+    )
+    
+    await update.message.reply_text(result_text)
 
 def main():
     init_database()
@@ -4638,6 +4693,7 @@ def main():
     application.add_handler(MessageHandler(filters.PHOTO, handle_admin_photos))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     application.add_handler(CallbackQueryHandler(handle_callback))
+    application.add_handler(CommandHandler("invite", invite_command))
     
     # هندلر دیباگ را هم اضافه کنید
     application.add_handler(CommandHandler("debug", debug_context))
