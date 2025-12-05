@@ -2414,6 +2414,153 @@ async def admin_select_topics_mode(update: Update, context: ContextTypes.DEFAULT
         "روی دکمه زیر کلیک کنید و مبحث اول را انتخاب کنید:",
         reply_markup=reply_markup
     )
+# بعد از تابع show_initial_settings_from_callback (حدود خط 1700) این تابع را اضافه کنید:
+
+async def show_initial_settings_for_resources(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """نمایش تنظیمات اولیه بعد از انتخاب منبع اول"""
+    quiz_data = context.user_data['custom_quiz']
+    settings = quiz_data['settings']
+    first_resource_name = quiz_data.get('first_resource_name', 'نامشخص')
+    
+    # محاسبه سوالات قابل دسترس برای منبع اول
+    available_questions = get_questions_count_by_resource(quiz_data['selected_resources'][0])[0][0]
+    
+    # متن نمایشی برای سطح سختی
+    difficulty_texts = {
+        'all': '🎯 همه سطوح',
+        'easy': '🟢 آسان', 
+        'medium': '🟡 متوسط',
+        'hard': '🔴 سخت'
+    }
+    difficulty_text = difficulty_texts.get(settings['difficulty'], '🎯 همه سطوح')
+    
+    keyboard = [
+        [InlineKeyboardButton(f"📊 تعداد سوالات: {settings['count']}", callback_data="initial_set_count")],
+        [InlineKeyboardButton(f"🎯 سطح سختی: {difficulty_text}", callback_data="initial_set_difficulty")],
+        [InlineKeyboardButton(f"⏱ زمان: {settings['time_limit']} دقیقه", callback_data="initial_set_time")],
+        [InlineKeyboardButton("➕ افزودن منبع دیگر", callback_data="add_more_resources")],
+        [InlineKeyboardButton("🚀 ساخت و شروع آزمون", callback_data="generate_custom_quiz")],
+        [InlineKeyboardButton("🔙 بازگشت", callback_data="create_custom_quiz")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    message_text = (
+        f"✅ منبع اول انتخاب شد: **{first_resource_name}**\n\n"
+        f"📊 سوالات قابل دسترس: {available_questions}\n\n"
+        f"⚙️ تنظیمات آزمون:\n"
+        f"• تعداد سوالات: {settings['count']}\n" 
+        f"• سطح سختی: {difficulty_text}\n"
+        f"• زمان: {settings['time_limit']} دقیقه\n\n"
+        f"می‌توانید:\n"
+        f"• تنظیمات را تغییر دهید\n"
+        f"• منابع بیشتری اضافه کنید\n" 
+        f"• یا آزمون را شروع کنید"
+    )
+    
+    await update.message.reply_text(message_text, reply_markup=reply_markup, parse_mode=ParseMode.MARKDOWN)
+
+async def add_more_resources(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """افزودن منابع بیشتر"""
+    context.user_data['custom_quiz']['step'] = 'adding_more_resources'
+    
+    # نمایش منابع انتخاب شده فعلی
+    resources_text = "\n".join([
+        f"• {get_resource_name(rid)}"
+        for rid in context.user_data['custom_quiz']['selected_resources']
+    ])
+    
+    keyboard = [
+        [InlineKeyboardButton("🔍 افزودن منبع جدید", switch_inline_query_current_chat="منبع ")],
+        [InlineKeyboardButton("🔙 بازگشت به تنظیمات", callback_data="back_to_initial_settings")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.callback_query.edit_message_text(
+        f"📖 افزودن منابع بیشتر\n\n"
+        f"منابع انتخاب شده فعلی:\n{resources_text}\n\n"
+        f"روی دکمه زیر کلیک کنید تا منبع جدیدی اضافه کنید:",
+        reply_markup=reply_markup
+    )
+
+async def handle_additional_resource_selection(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """پردازش انتخاب منابع اضافی"""
+    try:
+        text = update.message.text
+        resource_name = text.replace("منبع انتخاب شده:", "").strip()
+        
+        resource_info = get_resource_by_name(resource_name)
+        if not resource_info:
+            await update.message.reply_text(f"❌ منبع '{resource_name}' یافت نشد!")
+            return
+        
+        resource_id, name, description, is_active = resource_info[0]
+        
+        # بررسی تکراری نبودن منبع
+        if resource_id in context.user_data['custom_quiz']['selected_resources']:
+            await update.message.reply_text(f"❌ منبع '{name}' قبلاً اضافه شده است!")
+            return
+        
+        # بررسی تعداد سوالات موجود
+        questions_count = get_questions_count_by_resource(resource_id)
+        available_questions = questions_count[0][0] if questions_count else 0
+        
+        if available_questions == 0:
+            await update.message.reply_text(f"❌ هیچ سوالی برای منبع '{name}' در بانک وجود ندارد!")
+            return
+        
+        # افزودن منبع به لیست
+        context.user_data['custom_quiz']['selected_resources'].append(resource_id)
+        
+        # بازگشت به تنظیمات
+        context.user_data['custom_quiz']['step'] = 'settings'
+        await show_initial_settings_from_message_for_resources(update, context)
+        
+    except Exception as e:
+        logger.error(f"Error in additional resource selection: {e}")
+        await update.message.reply_text("❌ خطا در پردازش انتخاب منبع!")
+
+async def show_initial_settings_from_message_for_resources(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """نمایش تنظیمات اولیه برای منابع از پیام"""
+    quiz_data = context.user_data['custom_quiz']
+    settings = quiz_data['settings']
+    
+    # محاسبه کل سوالات قابل دسترس
+    total_available = sum([get_questions_count_by_resource(rid)[0][0] for rid in quiz_data['selected_resources']])
+    
+    # نمایش نام منابع انتخاب شده
+    resources_text = "\n".join([f"• {get_resource_name(rid)}" for rid in quiz_data['selected_resources']])
+    
+    # متن نمایشی برای سطح سختی
+    difficulty_texts = {
+        'all': '🎯 همه سطوح',
+        'easy': '🟢 آسان',
+        'medium': '🟡 متوسط', 
+        'hard': '🔴 سخت'
+    }
+    difficulty_text = difficulty_texts.get(settings['difficulty'], '🎯 همه سطوح')
+    
+    keyboard = [
+        [InlineKeyboardButton(f"📊 تعداد سوالات: {settings['count']}", callback_data="ask_question_count")],
+        [InlineKeyboardButton(f"🎯 سطح سختی: {difficulty_text}", callback_data="initial_set_difficulty")],
+        [InlineKeyboardButton(f"⏱ زمان: {settings['time_limit']} دقیقه", callback_data="ask_time_limit")],
+        [InlineKeyboardButton("➕ افزودن منبع دیگر", callback_data="add_more_resources")],
+        [InlineKeyboardButton("🚀 ساخت و شروع آزمون", callback_data="generate_custom_quiz")],
+        [InlineKeyboardButton("🔙 بازگشت", callback_data="create_custom_quiz")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    message_text = (
+        f"🎯 تنظیمات آزمون سفارشی (منابع)\n\n"
+        f"📖 منابع انتخاب شده:\n{resources_text}\n\n"
+        f"📊 سوالات قابل دسترس: {total_available}\n\n"
+        f"⚙️ تنظیمات فعلی:\n"
+        f"• تعداد سوالات: {settings['count']}\n"
+        f"• سطح سختی: {difficulty_text}\n"
+        f"• زمان: {settings['time_limit']} دقیقه\n\n"
+        f"برای تغییر هر مورد، روی آن کلیک کنید:"
+    )
+    
+    await update.message.reply_text(message_text, reply_markup=reply_markup)
 async def admin_handle_first_resource_selection(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """پردازش انتخاب منبع اول برای آزمون ادمین"""
     try:
