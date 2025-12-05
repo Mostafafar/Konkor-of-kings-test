@@ -1874,38 +1874,85 @@ async def custom_quiz_settings(update: Update, context: ContextTypes.DEFAULT_TYP
     
     await update.callback_query.edit_message_text(message_text, reply_markup=reply_markup)
 
+# در تابع generate_custom_quiz (حدود خط 1800) این تغییرات را انجام دهید:
 async def generate_custom_quiz(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """ایجاد و شروع آزمون سفارشی"""
     try:
         user_id = update.effective_user.id
         
-        if 'custom_quiz' not in context.user_data or not context.user_data['custom_quiz']['selected_topics']:
+        if 'custom_quiz' not in context.user_data:
             await update.callback_query.edit_message_text(
-                "❌ لطفاً حداقل یک مبحث انتخاب کنید!",
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت به آزمون سفارشی", callback_data="create_custom_quiz")]])
+                "❌ خطا در داده‌های آزمون!",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="create_custom_quiz")]])
             )
             return
         
         quiz_data = context.user_data['custom_quiz']
+        mode = quiz_data.get('mode', 'topics')
         
-        # دریافت سوالات از بانک
-        questions = get_questions_by_topics(
-            quiz_data['selected_topics'],
-            quiz_data['settings'].get('difficulty', 'all'),
-            quiz_data['settings'].get('count', 20)
-        )
-        
-        if not questions:
+        # اعتبارسنجی بر اساس حالت انتخاب شده
+        if mode == 'topics' and not quiz_data['selected_topics']:
             await update.callback_query.edit_message_text(
-                "❌ هیچ سوالی برای مباحث انتخاب شده یافت نشد!",
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت به آزمون سفارشی", callback_data="create_custom_quiz")]])
+                "❌ لطفاً حداقل یک مبحث انتخاب کنید!",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="create_custom_quiz")]])
+            )
+            return
+        elif mode == 'resources' and not quiz_data['selected_resources']:
+            await update.callback_query.edit_message_text(
+                "❌ لطفاً حداقل یک منبع انتخاب کنید!",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="create_custom_quiz")]])
             )
             return
         
+        # دریافت سوالات بر اساس حالت
+        questions = []
+        total_available = 0
+        
+        if mode == 'topics':
+            questions = get_questions_by_topics(
+                quiz_data['selected_topics'],
+                quiz_data['settings'].get('difficulty', 'all'),
+                quiz_data['settings'].get('count', 20)
+            )
+            # محاسبه سوالات قابل دسترس
+            for topic_id in quiz_data['selected_topics']:
+                count_result = get_questions_count_by_topic(topic_id)
+                total_available += count_result[0][0] if count_result else 0
+                
+        elif mode == 'resources':
+            questions = get_questions_by_resources(
+                quiz_data['selected_resources'],
+                quiz_data['settings'].get('difficulty', 'all'),
+                quiz_data['settings'].get('count', 20)
+            )
+            # محاسبه سوالات قابل دسترس
+            for resource_id in quiz_data['selected_resources']:
+                count_result = get_questions_count_by_resource(resource_id)
+                total_available += count_result[0][0] if count_result else 0
+        
+        if not questions:
+            await update.callback_query.edit_message_text(
+                f"❌ هیچ سوالی برای انتخاب‌های شما یافت نشد!\n\nسوالات قابل دسترس: {total_available}",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="create_custom_quiz")]])
+            )
+            return
+        
+        # اگر تعداد سوالات کمتر از تعداد درخواستی باشد
+        if len(questions) < quiz_data['settings']['count']:
+            await update.callback_query.answer(
+                f"⚠️ فقط {len(questions)} سوال از {quiz_data['settings']['count']} سوال درخواستی موجود بود!",
+                show_alert=True
+            )
+        
         # ایجاد آزمون موقت
-        topics_names = [get_topic_name(tid) for tid in quiz_data['selected_topics']]
-        quiz_title = f"آزمون سفارشی - {', '.join(topics_names)[:50]}..."
-        quiz_description = f"آزمون سفارشی شامل {len(questions)} سوال از {len(topics_names)} مبحث"
+        if mode == 'topics':
+            topics_names = [get_topic_name(tid) for tid in quiz_data['selected_topics']]
+            quiz_title = f"آزمون سفارشی - {', '.join(topics_names)[:50]}..."
+            quiz_description = f"آزمون سفارشی شامل {len(questions)} سوال از {len(topics_names)} مبحث"
+        else:
+            resource_names = [get_resource_name(rid) for rid in quiz_data['selected_resources']]
+            quiz_title = f"آزمون سفارشی - {', '.join(resource_names)[:50]}..."
+            quiz_description = f"آزمون سفارشی شامل {len(questions)} سوال از {len(resource_names)} منبع"
         
         quiz_id = create_quiz(quiz_title, quiz_description, quiz_data['settings'].get('time_limit', 30), False)
         
