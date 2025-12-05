@@ -71,18 +71,16 @@ def clear_admin_context(context: ContextTypes.DEFAULT_TYPE):
 
 def download_welcome_photo():
     """دانلود عکس از گیت‌هاب"""
-    photo_url = "https://raw.githubusercontent.com/username/your-repo/main/Welcome.jpg"
+    photo_url = "https://raw.githubusercontent.com/Mostafafar/Konkor-of-kings-test/main/welcome.jpg"
     local_path = os.path.join(PHOTOS_DIR, "welcome.jpg")
     
-    if os.path.exists(local_path):
-        return True
-        
     try:
+        # همیشه دانلود کن (حتی اگر فایل وجود دارد)
         response = requests.get(photo_url, timeout=10)
         if response.status_code == 200:
             with open(local_path, 'wb') as f:
                 f.write(response.content)
-            logger.info("Welcome photo downloaded successfully")
+            logger.info("Welcome photo downloaded/updated successfully")
             return True
         else:
             logger.error(f"Failed to download photo. Status code: {response.status_code}")
