@@ -1465,18 +1465,40 @@ async def process_time_limit_input(update: Update, context: ContextTypes.DEFAULT
     
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """مدیریت پیام‌های متنی"""
+    """مدیریت پیام‌های متنی و محتوایی"""
     if update.message.contact:
         await handle_contact(update, context)
         return
     
     user_id = update.effective_user.id
-    text = update.message.text if update.message.text else ""
     
-    logger.info(f"📝 HANDLE_MESSAGE: User {user_id}, Text: '{text}', Context: {context.user_data}")
-
     # ===== اولویت 1: پردازش عملیات ادمین =====
     if user_id == ADMIN_ID:
+        # 1.14 پردازش پیام همگانی (اولین شرط)
+        if context.user_data.get('admin_action') == 'broadcasting':
+            # بررسی اینکه آیا پیام حاوی محتوای قابل ارسال است
+            has_content = (
+                update.message.text or 
+                update.message.photo or 
+                update.message.poll or 
+                update.message.video or 
+                update.message.document or 
+                update.message.audio or 
+                update.message.voice
+            )
+            
+            if has_content:
+                await handle_broadcast(update, context)
+                return
+            else:
+                await update.message.reply_text("❌ محتوای نامعتبر! لطفاً متن، عکس، نظرسنجی یا فایل ارسال کنید.")
+                return
+        
+        # بقیه کدهای پردازش ادمین بدون تغییر...
+        # ...
+    
+    # بقیه کد بدون تغییر...
+    # ...
         # 1.1 پردازش افزودن منبع جدید
         if (context.user_data.get('admin_action') == 'adding_resource' and
             'resource_data' in context.user_data):
@@ -1709,19 +1731,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # در تابع handle_message، بخش پردازش پیام‌های ادمین، این بخش را اضافه کنید:
 
 # 1.14 پردازش پیام همگانی (تغییر یافته)
-        if context.user_data.get('admin_action') == 'broadcasting':
-    # بررسی اینکه آیا پیام حاوی محتوای قابل ارسال است
-           if (update.message.text or 
-               update.message.photo or 
-               update.message.poll or 
-               update.message.video or 
-               update.message.document or 
-               update.message.audio or 
-               update.message.voice):
-               await handle_broadcast(update, context)
-           else:
-               await update.message.reply_text("❌ محتوای نامعتبر! لطفاً متن، عکس، نظرسنجی یا فایل ارسال کنید.")
-           return
+        
     # ===== اولویت 2: پردازش کاربران عادی =====
     
     # 2.1 پردازش انتخاب مبحث برای آزمون سفارشی
