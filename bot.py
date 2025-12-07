@@ -971,6 +971,36 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await show_full_ranking(update, context, quiz_id)
     elif data == "detailed_stats":
         await show_detailed_stats(update, context)
+    # هندلرهای پیام همگانی
+    elif data == "broadcast_text":
+        context.user_data['admin_action'] = 'broadcasting'
+        await query.edit_message_text(
+            "📝 ارسال متن همگانی\n\n"
+            "لطفاً متن پیام همگانی را وارد کنید:",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔙 بازگشت", callback_data="admin_broadcast")]
+            ])
+        )
+    elif data == "broadcast_photo":
+        context.user_data['admin_action'] = 'broadcasting'
+        await query.edit_message_text(
+            "📸 ارسال عکس همگانی\n\n"
+            "لطفاً عکس مورد نظر را ارسال کنید (می‌توانید کپشن هم اضافه کنید):",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔙 بازگشت", callback_data="admin_broadcast")]
+            ])
+        )
+    elif data == "broadcast_document":
+        context.user_data['admin_action'] = 'broadcasting'
+        await query.edit_message_text(
+            "📄 ارسال فایل همگانی\n\n"
+            "لطفاً فایل مورد نظر را ارسال کنید (می‌توانید کپشن هم اضافه کنید):",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔙 بازگشت", callback_data="admin_broadcast")]
+            ])
+        )
+    elif data == "send_broadcast_now":
+        await send_broadcast_now(update, context)
     
     else:
         # اگر هیچکدام از هندلرها مطابقت نداشت
