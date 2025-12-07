@@ -3764,13 +3764,21 @@ async def handle_contact(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await show_main_menu(update, context)
 
 async def handle_admin_photos(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """پردازش عکس‌های ارسالی ادمین"""
+    """پردازش عکس‌ها و فایل‌های ارسالی ادمین"""
     if update.effective_user.id != ADMIN_ID:
         return
     
-    logger.info(f"📸 ADMIN_PHOTO: Received photo, context: {context.user_data}")
+    logger.info(f"📸 ADMIN_PHOTO: Received media, context: {context.user_data}")
     
-    # حالت افزودن سوال به بانک
+    # ===== اولویت 1: حالت پیام همگانی =====
+    if context.user_data.get('admin_action') == 'broadcasting':
+        logger.info(f"📸 BROADCAST_MEDIA: Processing media for broadcast")
+        
+        # برای پیام همگانی، محتوا مستقیماً به تابع handle_broadcast منتقل می‌شود
+        # این کار در تابع handle_message انجام خواهد شد
+        return
+    
+    # ===== اولویت 2: حالت افزودن سوال به بانک =====
     if (context.user_data.get('admin_action') == 'adding_question_to_bank' and
         'question_bank_data' in context.user_data):
         
@@ -3795,27 +3803,33 @@ async def handle_admin_photos(update: Update, context: ContextTypes.DEFAULT_TYPE
             return
         
         try:
-            # دریافت و ذخیره عکس
-            photo_file = await update.message.photo[-1].get_file()
-            image_filename = f"question_bank_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{random.randint(1000, 9999)}.jpg"
-            image_path = os.path.join(PHOTOS_DIR, image_filename)
-            
-            await photo_file.download_to_drive(image_path)
-            
-            # ذخیره مسیر عکس و رفتن به مرحله بعد
-            question_data['question_image'] = image_path
-            question_data['step'] = 'waiting_for_answer'
-            context.user_data['question_bank_data'] = question_data
-            
-            logger.info(f"✅ ADMIN_PHOTO: Question image saved: {image_path}")
-            logger.info(f"✅ ADMIN_PHOTO: Moved to step: waiting_for_answer")
-            
-            await update.message.reply_text(
-                "✅ عکس سوال ذخیره شد.\n\n"
-                "**مرحله ۳/۳: تعیین پاسخ صحیح**\n\n"
-                "لطفاً شماره گزینه صحیح را ارسال کنید (1 تا 4):",
-                parse_mode=ParseMode.MARKDOWN
-            )
+            # فقط عکس‌ها را برای سوالات قبول می‌کنیم (نه فایل‌های دیگر)
+            if update.message.photo:
+                # دریافت و ذخیره عکس
+                photo_file = await update.message.photo[-1].get_file()
+                image_filename = f"question_bank_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{random.randint(1000, 9999)}.jpg"
+                image_path = os.path.join(PHOTOS_DIR, image_filename)
+                
+                await photo_file.download_to_drive(image_path)
+                
+                # ذخیره مسیر عکس و رفتن به مرحله بعد
+                question_data['question_image'] = image_path
+                question_data['step'] = 'waiting_for_answer'
+                context.user_data['question_bank_data'] = question_data
+                
+                logger.info(f"✅ ADMIN_PHOTO: Question image saved: {image_path}")
+                logger.info(f"✅ ADMIN_PHOTO: Moved to step: waiting_for_answer")
+                
+                await update.message.reply_text(
+                    "✅ عکس سوال ذخیره شد.\n\n"
+                    "**مرحله ۳/۳: تعیین پاسخ صحیح**\n\n"
+                    "لطفاً شماره گزینه صحیح را ارسال کنید (1 تا 4):",
+                    parse_mode=ParseMode.MARKDOWN
+                )
+            else:
+                await update.message.reply_text(
+                    "❌ برای سوال آزمون فقط عکس قابل قبول است!"
+                )
             
         except Exception as e:
             logger.error(f"❌ ADMIN_PHOTO: Error saving question image: {e}")
@@ -3823,7 +3837,7 @@ async def handle_admin_photos(update: Update, context: ContextTypes.DEFAULT_TYPE
         
         return
     
-    # حالت عادی برای ایجاد آزمون
+    # ===== حالت عادی برای ایجاد آزمون =====
     if 'admin_action' not in context.user_data or context.user_data['admin_action'] != 'adding_questions':
         await update.message.reply_text("❌ ابتدا فرآیند ایجاد آزمون را شروع کنید.")
         return
@@ -3835,21 +3849,43 @@ async def handle_admin_photos(update: Update, context: ContextTypes.DEFAULT_TYPE
         return
     
     # دریافت عکس
-    photo_file = await update.message.photo[-1].get_file()
-    image_filename = f"question_{quiz_data['quiz_id']}_{len(quiz_data['questions']) + 1}.jpg"
-    image_path = os.path.join(PHOTOS_DIR, image_filename)
+    if update.message.photo:
+        photo_file = await update.message.photo[-1].get_file()
+        image_filename = f"question_{quiz_data['quiz_id']}_{len(quiz_data['questions']) + 1}.jpg"
+        image_path = os.path.join(PHOTOS_DIR, image_filename)
+        
+        await photo_file.download_to_drive(image_path)
+        
+        # ذخیره مسیر عکس
+        quiz_data['current_question_image'] = image_path
+        quiz_data['current_step'] = 'correct_answer'
+        
+        context.user_data['quiz_data'] = quiz_data
+        
+        await update.message.reply_text(
+            "✅ عکس سوال ذخیره شد.\n\n"
+            "لطفاً شماره گزینه صحیح را ارسال کنید (1 تا 4):"
+        )
+    else:
+        await update.message.reply_text("❌ برای سوال آزمون فقط عکس قابل قبول است!")
+async def handle_admin_documents(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """پردازش فایل‌های ارسالی ادمین"""
+    if update.effective_user.id != ADMIN_ID:
+        return
     
-    await photo_file.download_to_drive(image_path)
+    logger.info(f"📄 ADMIN_DOCUMENT: Received document, context: {context.user_data}")
     
-    # ذخیره مسیر عکس
-    quiz_data['current_question_image'] = image_path
-    quiz_data['current_step'] = 'correct_answer'
+    # فقط برای پیام همگانی فایل‌ها را قبول می‌کنیم
+    if context.user_data.get('admin_action') == 'broadcasting':
+        logger.info(f"📄 BROADCAST_DOCUMENT: Processing document for broadcast")
+        # برای پیام همگانی، فایل مستقیماً به تابع handle_broadcast منتقل می‌شود
+        # این کار در تابع handle_message انجام خواهد شد
+        return
     
-    context.user_data['quiz_data'] = quiz_data
-    
+    # برای سایر موارد، فایل قبول نمی‌کنیم
     await update.message.reply_text(
-        "✅ عکس سوال ذخیره شد.\n\n"
-        "لطفاً شماره گزینه صحیح را ارسال کنید (1 تا 4):"
+        "❌ فایل فقط برای پیام همگانی قابل ارسال است!\n\n"
+        "برای افزودن سوال به آزمون، لطفاً فقط عکس ارسال کنید."
     )
 
 async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -5017,6 +5053,8 @@ def main():
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     application.add_handler(CallbackQueryHandler(handle_callback))
     application.add_handler(CommandHandler("invite", invite_command))
+    # در تابع main()، بعد از خطوط موجود، این خط را اضافه کنید:
+    application.add_handler(MessageHandler(filters.Document.ALL, handle_admin_documents))
     
     # هندلر دیباگ را هم اضافه کنید
     application.add_handler(CommandHandler("debug", debug_context))
