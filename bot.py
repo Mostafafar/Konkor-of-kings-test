@@ -3774,19 +3774,34 @@ async def handle_contact(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await show_main_menu(update, context)
 
 async def handle_admin_photos(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """پردازش عکس‌ها و فایل‌های ارسالی ادمین"""
+    """پردازش عکس‌های ارسالی ادمین - هم برای سوال و هم برای پیام همگانی"""
     if update.effective_user.id != ADMIN_ID:
         return
-    
-    logger.info(f"📸 ADMIN_PHOTO: Received media, context: {context.user_data}")
-    
-    # ===== اولویت 1: حالت پیام همگانی =====
+
+    # اگر در حال پیام همگانی هستیم
     if context.user_data.get('admin_action') == 'broadcasting':
-        logger.info(f"📸 BROADCAST_MEDIA: Processing media for broadcast")
+        if 'broadcast_data' not in context.user_data:
+            context.user_data['broadcast_data'] = {}
+
+        photo_file = update.message.photo[-1]  # بهترین کیفیت
+        file = await photo_file.get_file()
+        file_path = await file.download_to_drive("temp_broadcast_photo.jpg")
         
-        # برای پیام همگانی، محتوا مستقیماً به تابع handle_broadcast منتقل می‌شود
-        # این کار در تابع handle_message انجام خواهد شد
+        context.user_data['broadcast_data']['photo'] = file_path
+        context.user_data['broadcast_data']['type'] = 'photo'
+
+        await update.message.reply_text(
+            "عکس با موفقیت دریافت شد!\n\n"
+            "حالا متن پیام همگانی را بنویسید (یا اگر فقط عکس می‌خواهید، /done بزنید):",
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("ارسال فقط با عکس", callback_data="send_broadcast")
+            ]])
+        )
         return
+
+    # ادامه کد قبلی برای افزودن سوال (بدون تغییر)
+    # اگر در حال افزودن سوال بود...
+    # ... (بقیه کد قبلی شما بدون تغییر)
     
     # ===== اولویت 2: حالت افزودن سوال به بانک =====
     if (context.user_data.get('admin_action') == 'adding_question_to_bank' and
@@ -3879,7 +3894,7 @@ async def handle_admin_photos(update: Update, context: ContextTypes.DEFAULT_TYPE
     else:
         await update.message.reply_text("❌ برای سوال آزمون فقط عکس قابل قبول است!")
 async def handle_admin_documents(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """پردازش فایل‌های ارسالی ادمین"""
+    """پردازش فایل‌های ارسالی ادمین - برای پیام همگانی"""
     if update.effective_user.id != ADMIN_ID:
         return
     
@@ -3888,16 +3903,40 @@ async def handle_admin_documents(update: Update, context: ContextTypes.DEFAULT_T
     # فقط برای پیام همگانی فایل‌ها را قبول می‌کنیم
     if context.user_data.get('admin_action') == 'broadcasting':
         logger.info(f"📄 BROADCAST_DOCUMENT: Processing document for broadcast")
-        # برای پیام همگانی، فایل مستقیماً به تابع handle_broadcast منتقل می‌شود
-        # این کار در تابع handle_message انجام خواهد شد
+        
+        if 'broadcast_data' not in context.user_data:
+            context.user_data['broadcast_data'] = {}
+
+        document = update.message.document
+        file = await document.get_file()
+        file_path = f"temp_broadcast_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{document.file_name}"
+        await file.download_to_drive(file_path)
+
+        context.user_data['broadcast_data']['document'] = file_path
+        context.user_data['broadcast_data']['type'] = 'document'
+        context.user_data['broadcast_data']['caption'] = update.message.caption or ""
+        context.user_data['broadcast_data']['file_name'] = document.file_name
+
+        keyboard = [
+            [InlineKeyboardButton("✅ ارسال پیام همگانی", callback_data="send_broadcast_now")],
+            [InlineKeyboardButton("❌ انصراف", callback_data="admin_panel")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        await update.message.reply_text(
+            f"✅ فایل با موفقیت دریافت شد!\n\n"
+            f"📄 نام فایل: {document.file_name}\n"
+            f"📝 کپشن: {update.message.caption or 'بدون کپشن'}\n\n"
+            "برای ارسال پیام همگانی با این فایل، دکمه زیر را بزنید:",
+            reply_markup=reply_markup
+        )
         return
     
     # برای سایر موارد، فایل قبول نمی‌کنیم
     await update.message.reply_text(
         "❌ فایل فقط برای پیام همگانی قابل ارسال است!\n\n"
         "برای افزودن سوال به آزمون، لطفاً فقط عکس ارسال کنید."
-    )
-
+        )
 async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """پردازش متن‌های ارسالی ادمین"""
     if update.effective_user.id != ADMIN_ID:
