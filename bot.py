@@ -5064,7 +5064,7 @@ def main():
     application.add_handler(CallbackQueryHandler(handle_callback))
     application.add_handler(CommandHandler("invite", invite_command))
     # در تابع main()، بعد از خطوط موجود، این خط را اضافه کنید:
-    application.add_handler(MessageHandler(filters.Document.ALL, handle_admin_documents))
+    
     
     # هندلر دیباگ را هم اضافه کنید
     application.add_handler(CommandHandler("debug", debug_context))
