@@ -3736,6 +3736,96 @@ async def handle_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # پاک کردن وضعیت
     if 'admin_action' in context.user_data:
         del context.user_data['admin_action']
+async def send_broadcast_now(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """ارسال فوری پیام همگانی با عکس/فایل"""
+    query = update.callback_query
+    await query.answer()
+    
+    if 'broadcast_data' not in context.user_data:
+        await query.edit_message_text("❌ هیچ رسانه‌ای برای ارسال وجود ندارد!")
+        return
+    
+    data = context.user_data['broadcast_data']
+    
+    users = get_all_users()
+    total_users = len(users)
+    
+    if total_users == 0:
+        await query.edit_message_text("❌ هیچ کاربری برای ارسال پیام وجود ندارد!")
+        return
+    
+    # پیام در حال ارسال
+    progress_msg = await query.edit_message_text(f"📤 در حال ارسال به {total_users} کاربر...\n\n✅ موفق: 0\n❌ ناموفق: 0")
+    
+    successful_sends = 0
+    failed_sends = 0
+    
+    for index, user in enumerate(users):
+        user_id = user[0]
+        
+        try:
+            if data['type'] == 'photo':
+                with open(data['photo'], 'rb') as photo:
+                    await context.bot.send_photo(
+                        chat_id=user_id,
+                        photo=photo,
+                        caption=data.get('caption', ''),
+                        parse_mode=ParseMode.MARKDOWN if data.get('caption') else None
+                    )
+            
+            elif data['type'] == 'document':
+                with open(data['document'], 'rb') as doc:
+                    await context.bot.send_document(
+                        chat_id=user_id,
+                        document=doc,
+                        caption=data.get('caption', ''),
+                        parse_mode=ParseMode.MARKDOWN if data.get('caption') else None
+                    )
+            
+            successful_sends += 1
+            
+        except Exception as e:
+            logger.error(f"Failed to send to user {user_id}: {e}")
+            failed_sends += 1
+        
+        # بروزرسانی پیشرفت هر 5 کاربر
+        if (index + 1) % 5 == 0:
+            try:
+                await progress_msg.edit_text(
+                    f"📤 در حال ارسال به {total_users} کاربر...\n\n"
+                    f"✅ موفق: {successful_sends}\n"
+                    f"❌ ناموفق: {failed_sends}\n"
+                    f"📊 پیشرفت: {((index + 1) / total_users) * 100:.1f}%"
+                )
+            except:
+                pass
+        
+        await asyncio.sleep(0.1)  # جلوگیری از rate limit
+    
+    # پاک کردن فایل‌های موقت
+    if 'photo' in data and os.path.exists(data['photo']):
+        os.remove(data['photo'])
+    if 'document' in data and os.path.exists(data['document']):
+        os.remove(data['document'])
+    
+    result_text = (
+        f"✅ پیام همگانی ارسال شد!\n\n"
+        f"📊 نتایج:\n"
+        f"• 👥 کل کاربران: {total_users}\n"
+        f"• ✅ ارسال موفق: {successful_sends}\n"
+        f"• ❌ ارسال ناموفق: {failed_sends}\n"
+        f"• 📈 نرخ موفقیت: {(successful_sends/total_users)*100:.1f}%\n\n"
+        f"نوع محتوا: {data['type']}"
+    )
+    
+    keyboard = [[InlineKeyboardButton("🔙 بازگشت به پنل ادمین", callback_data="admin_panel")]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await progress_msg.edit_text(result_text, reply_markup=reply_markup)
+    
+    # پاک کردن داده‌های موقت
+    context.user_data.pop('broadcast_data', None)
+    context.user_data.pop('admin_action', None)
 
 async def handle_contact(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """پردازش شماره تلفن دریافتی"""
