@@ -3499,7 +3499,7 @@ async def admin_broadcast_message(update: Update, context: ContextTypes.DEFAULT_
     )
 
 async def handle_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """پردازش و ارسال پیام همگانی"""
+    """پردازش و ارسال پیام همگانی با پشتیبانی از عکس، نظرسنجی و سایر رسانه‌ها"""
     if update.effective_user.id != ADMIN_ID:
         return
     
@@ -3528,42 +3528,138 @@ async def handle_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🔄 در حال ارسال..."
     )
     
+    # بررسی نوع محتوای ارسالی
+    message_type = "text"
+    media_content = None
+    poll_data = None
+    
+    # تشخیص نوع پیام
+    if update.message.photo:
+        message_type = "photo"
+        media_content = await update.message.photo[-1].get_file()
+        caption = update.message.caption
+        logger.info(f"📸 BROADCAST: Photo detected, caption: {caption}")
+        
+    elif update.message.poll:
+        message_type = "poll"
+        poll_data = {
+            'question': update.message.poll.question,
+            'options': [option.text for option in update.message.poll.options],
+            'is_anonymous': update.message.poll.is_anonymous,
+            'type': update.message.poll.type,
+            'allows_multiple_answers': update.message.poll.allows_multiple_answers
+        }
+        logger.info(f"📊 BROADCAST: Poll detected, question: {poll_data['question']}")
+        
+    elif update.message.video:
+        message_type = "video"
+        media_content = await update.message.video.get_file()
+        caption = update.message.caption
+        logger.info(f"🎬 BROADCAST: Video detected")
+        
+    elif update.message.document:
+        message_type = "document"
+        media_content = await update.message.document.get_file()
+        caption = update.message.caption
+        logger.info(f"📄 BROADCAST: Document detected")
+        
+    elif update.message.audio:
+        message_type = "audio"
+        media_content = await update.message.audio.get_file()
+        caption = update.message.caption
+        logger.info(f"🎵 BROADCAST: Audio detected")
+        
+    elif update.message.voice:
+        message_type = "voice"
+        media_content = await update.message.voice.get_file()
+        logger.info(f"🎙️ BROADCAST: Voice message detected")
+        
+    elif update.message.text:
+        message_type = "text"
+        text_content = update.message.text
+        logger.info(f"📝 BROADCAST: Text message detected")
+    
     # ارسال به کاربران
     for index, user in enumerate(users):
         user_id = user[0]
         
         try:
-            # لاگ کردن برای دیباگ
-            logger.info(f"📨 BROADCAST: Attempting to send to user {user_id}")
+            logger.info(f"📨 BROADCAST: Attempting to send to user {user_id}, type: {message_type}")
             
-            # اگر پیام دارای عکس است
-            if update.message.photo:
-                photo_file = await update.message.photo[-1].get_file()
-                
-                # ارسال عکس با کپشن (اگر متن وجود دارد)
-                caption = update.message.caption if update.message.caption else None
+            if message_type == "photo" and media_content:
+                # ارسال عکس
                 await context.bot.send_photo(
                     chat_id=user_id,
-                    photo=photo_file.file_id,
-                    caption=caption,
-                    parse_mode=ParseMode.MARKDOWN
+                    photo=media_content.file_id,
+                    caption=update.message.caption,
+                    parse_mode=ParseMode.MARKDOWN if update.message.caption else None
                 )
-            
-            # اگر فقط متن است
-            elif update.message.text:
+                
+            elif message_type == "poll" and poll_data:
+                # ارسال نظرسنجی
+                await context.bot.send_poll(
+                    chat_id=user_id,
+                    question=poll_data['question'],
+                    options=poll_data['options'],
+                    is_anonymous=poll_data['is_anonymous'],
+                    type=poll_data['type'],
+                    allows_multiple_answers=poll_data['allows_multiple_answers']
+                )
+                
+            elif message_type == "video" and media_content:
+                # ارسال ویدئو
+                await context.bot.send_video(
+                    chat_id=user_id,
+                    video=media_content.file_id,
+                    caption=update.message.caption,
+                    parse_mode=ParseMode.MARKDOWN if update.message.caption else None
+                )
+                
+            elif message_type == "document" and media_content:
+                # ارسال فایل
+                await context.bot.send_document(
+                    chat_id=user_id,
+                    document=media_content.file_id,
+                    caption=update.message.caption,
+                    parse_mode=ParseMode.MARKDOWN if update.message.caption else None
+                )
+                
+            elif message_type == "audio" and media_content:
+                # ارسال صوت
+                await context.bot.send_audio(
+                    chat_id=user_id,
+                    audio=media_content.file_id,
+                    caption=update.message.caption,
+                    parse_mode=ParseMode.MARKDOWN if update.message.caption else None
+                )
+                
+            elif message_type == "voice" and media_content:
+                # ارسال پیام صوتی
+                await context.bot.send_voice(
+                    chat_id=user_id,
+                    voice=media_content.file_id
+                )
+                
+            elif message_type == "text" and update.message.text:
+                # ارسال متن ساده
                 await context.bot.send_message(
                     chat_id=user_id,
                     text=update.message.text,
-                    parse_mode=ParseMode.MARKDOWN
+                    parse_mode=ParseMode.MARKDOWN if update.message.parse_mode else None
                 )
+            else:
+                logger.error(f"❌ BROADCAST: Unknown message type: {message_type}")
+                failed_sends += 1
+                errors_log.append(f"نوع پیام ناشناخته: {message_type}")
+                continue
             
             successful_sends += 1
             logger.info(f"✅ BROADCAST: Successfully sent to user {user_id}")
             
         except Exception as e:
-            error_msg = f"Failed to send to user {user_id}: {str(e)}"
-            logger.error(error_msg)
-            errors_log.append(error_msg[:100])  # ذخیره ۱۰۰ کاراکتر اول خطا
+            error_msg = f"Failed to send to user {user_id}: {str(e)[:100]}"
+            logger.error(f"❌ BROADCAST: {error_msg}")
+            errors_log.append(error_msg)
             failed_sends += 1
         
         # بروزرسانی پیشرفت هر ۵ کاربر
@@ -3571,7 +3667,7 @@ async def handle_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
             progress = ((index + 1) / total_users) * 100
             try:
                 await progress_msg.edit_text(
-                    f"📤 ارسال پیام به کاربران...\n\n"
+                    f"📤 ارسال پیام همگانی...\n\n"
                     f"✅ موفق: {successful_sends}\n"
                     f"❌ ناموفق: {failed_sends}\n"
                     f"📊 پیشرفت: {progress:.1f}%\n"
@@ -3580,8 +3676,9 @@ async def handle_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except Exception as e:
                 logger.error(f"Failed to update progress: {e}")
         
-        # تاخیر برای جلوگیری از محدودیت تلگرام
-        await asyncio.sleep(0.2)
+        # تاخیر برای جلوگیری از محدودیت تلگرام (افزایش کمی برای رسانه‌های سنگین)
+        delay = 0.3 if message_type in ["photo", "video", "document"] else 0.2
+        await asyncio.sleep(delay)
     
     # نتیجه نهایی
     result_text = (
@@ -3590,13 +3687,16 @@ async def handle_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"• 👥 کاربران کل: {total_users}\n"
         f"• ✅ ارسال موفق: {successful_sends}\n"
         f"• ❌ ارسال ناموفق: {failed_sends}\n"
-        f"• 📈 نرخ موفقیت: {(successful_sends/total_users)*100:.1f}%"
+        f"• 📈 نرخ موفقیت: {(successful_sends/total_users)*100:.1f}%\n"
+        f"• 📦 نوع محتوا: {message_type}"
     )
     
     # اضافه کردن نمونه‌ای از خطاها اگر وجود داشته باشد
     if errors_log and len(errors_log) > 0:
         sample_errors = "\n".join(errors_log[:3])  # ۳ خطای اول
         result_text += f"\n\n⚠️ نمونه خطاها:\n{sample_errors}"
+        if len(errors_log) > 3:
+            result_text += f"\n... و {len(errors_log) - 3} خطای دیگر"
     
     keyboard = [[InlineKeyboardButton("🔙 بازگشت به پنل ادمین", callback_data="admin_panel")]]
     reply_markup = InlineKeyboardMarkup(keyboard)
