@@ -3494,7 +3494,7 @@ async def show_detailed_stats(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 
 async def admin_broadcast_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """شروع فرآیند ارسال پیام همگانی"""
+    """شروع فرآیند ارسال پیام همگانی با قابلیت‌های کامل"""
     if update.effective_user.id != ADMIN_ID:
         return
     
@@ -3505,8 +3505,16 @@ async def admin_broadcast_message(update: Update, context: ContextTypes.DEFAULT_
     
     await update.callback_query.edit_message_text(
         "📢 ارسال پیام همگانی:\n\n"
-        "لطفاً پیام خود را ارسال کنید (متن، عکس، یا هر دو):\n\n"
-        "💡 نکته: می‌توانید متن به همراه عکس ارسال کنید.",
+        "✅ **قابلیت‌های موجود:**\n"
+        "• 📝 متن ساده\n"
+        "• 📸 عکس (با یا بدون توضیح)\n"
+        "• 📊 نظرسنجی (Poll)\n"
+        "• 🎬 ویدئو\n"
+        "• 📄 فایل\n"
+        "• 🎵 فایل صوتی\n"
+        "• 🎙️ پیام صوتی\n\n"
+        "**لطفاً محتوای مورد نظر را ارسال کنید:**",
+        parse_mode=ParseMode.MARKDOWN,
         reply_markup=reply_markup
     )
 
