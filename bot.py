@@ -1706,10 +1706,22 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         # 1.14 پردازش پیام همگانی
-        if context.user_data.get('admin_action') == 'broadcasting':
-            await handle_broadcast(update, context)
-            return
+        # در تابع handle_message، بخش پردازش پیام‌های ادمین، این بخش را اضافه کنید:
 
+# 1.14 پردازش پیام همگانی (تغییر یافته)
+        if context.user_data.get('admin_action') == 'broadcasting':
+    # بررسی اینکه آیا پیام حاوی محتوای قابل ارسال است
+           if (update.message.text or 
+               update.message.photo or 
+               update.message.poll or 
+               update.message.video or 
+               update.message.document or 
+               update.message.audio or 
+               update.message.voice):
+               await handle_broadcast(update, context)
+           else:
+               await update.message.reply_text("❌ محتوای نامعتبر! لطفاً متن، عکس، نظرسنجی یا فایل ارسال کنید.")
+           return
     # ===== اولویت 2: پردازش کاربران عادی =====
     
     # 2.1 پردازش انتخاب مبحث برای آزمون سفارشی
