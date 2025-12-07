@@ -3504,26 +3504,24 @@ async def show_detailed_stats(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 
 async def admin_broadcast_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """شروع فرآیند ارسال پیام همگانی با قابلیت‌های کامل"""
+    """شروع فرآیند ارسال پیام همگانی"""
     if update.effective_user.id != ADMIN_ID:
         return
     
-    context.user_data['admin_action'] = 'broadcasting'
-    
-    keyboard = [[InlineKeyboardButton("🔙 بازگشت به پنل ادمین", callback_data="admin_panel")]]
+    keyboard = [
+        [InlineKeyboardButton("📝 ارسال متن", callback_data="broadcast_text")],
+        [InlineKeyboardButton("📸 ارسال عکس", callback_data="broadcast_photo")],
+        [InlineKeyboardButton("📄 ارسال فایل", callback_data="broadcast_document")],
+        [InlineKeyboardButton("🔙 بازگشت به پنل ادمین", callback_data="admin_panel")]
+    ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     await update.callback_query.edit_message_text(
         "📢 ارسال پیام همگانی:\n\n"
-        "✅ **قابلیت‌های موجود:**\n"
-        "• 📝 متن ساده\n"
-        "• 📸 عکس (با یا بدون توضیح)\n"
-        "• 📊 نظرسنجی (Poll)\n"
-        "• 🎬 ویدئو\n"
-        "• 📄 فایل\n"
-        "• 🎵 فایل صوتی\n"
-        "• 🎙️ پیام صوتی\n\n"
-        "**لطفاً محتوای مورد نظر را ارسال کنید:**",
+        "لطفاً نوع محتوای مورد نظر را انتخاب کنید:\n\n"
+        "• 📝 **متن**: پیام متنی ساده\n"
+        "• 📸 **عکس**: عکس با کپشن اختیاری\n"
+        "• 📄 **فایل**: هر نوع فایل با کپشن اختیاری",
         parse_mode=ParseMode.MARKDOWN,
         reply_markup=reply_markup
     )
