@@ -3703,7 +3703,7 @@ async def handle_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await context.bot.send_message(
                     chat_id=user_id,
                     text=update.message.text,
-                    parse_mode=ParseMode.MARKDOWN if update.message.parse_mode else None
+                    parse_mode=ParseMode.MARKDOWN  # برای پشتیبانی از مارک‌داون
                 )
             else:
                 logger.error(f"❌ BROADCAST: Unknown message type: {message_type}")
