@@ -738,7 +738,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await show_main_menu(update, context)
 
-    await show_main_menu(update, context)
 
 async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
@@ -1146,7 +1145,7 @@ async def handle_field_selection(update: Update, context: ContextTypes.DEFAULT_T
     )
     
     keyboard = [
-        [InlineKeyboardButton("📝 مشاهده مثال", callback_data="study_plan_show_example")],
+        
         [InlineKeyboardButton("✅ اتمام ثبت", callback_data="study_plan_submit_exams")],
         [InlineKeyboardButton("🔙 بازگشت", callback_data=f"study_plan_grade_{field}"),
          InlineKeyboardButton("❌ لغو", callback_data="study_plan_cancel")]
