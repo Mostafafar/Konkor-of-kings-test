@@ -44,6 +44,7 @@ DB_CONFIG = {
 BOT_TOKEN = "8334186975:AAHcwOGUBYrx436aO3wP_Of_76L2R7DbMwU"
 ADMIN_ID = 6680287530
 PHOTOS_DIR = "photos"
+# بعد از ADMIN_ID این خطوط را اضافه کنید:
 
 # ایجاد دایرکتوری عکس‌ها
 os.makedirs(PHOTOS_DIR, exist_ok=True)
@@ -88,6 +89,21 @@ def download_welcome_photo():
     except Exception as e:
         logger.error(f"Error downloading welcome photo: {e}")
         return False
+# توابع جدید برای برنامه شخصی
+def save_study_plan_request(user_id: int, grade: str, field: str, exams_info: str):
+    """ذخیره درخواست برنامه شخصی در دیتابیس"""
+    return execute_query('''
+        INSERT INTO study_plan_requests (user_id, grade, field, exams_info, created_at)
+        VALUES (%s, %s, %s, %s, CURRENT_TIMESTAMP) RETURNING id
+    ''', (user_id, grade, field, exams_info), return_id=True)
+
+def get_user_complete_info(user_id: int):
+    """دریافت اطلاعات کامل کاربر"""
+    result = execute_query(
+        "SELECT user_id, full_name, username, phone_number FROM users WHERE user_id = %s",
+        (user_id,)
+    )
+    return result[0] if result else None
 
 
         
@@ -236,6 +252,18 @@ def init_database():
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
+        # بعد از جدول quiz_templates در init_database این کد را اضافه کنید:
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS study_plan_requests (
+               id SERIAL PRIMARY KEY,
+               user_id BIGINT REFERENCES users(user_id) ON DELETE CASCADE,
+               grade TEXT NOT NULL,
+               field TEXT NOT NULL,
+               exams_info TEXT NOT NULL,
+               is_processed BOOLEAN DEFAULT FALSE,
+               created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
         
         db_connection.commit()
         logger.info("Database tables created successfully")
@@ -244,6 +272,7 @@ def init_database():
         logger.error(f"Database initialization error: {e}")
         if db_connection:
             db_connection.rollback()
+
 async def admin_manage_resources(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """مدیریت منابع"""
     if update.effective_user.id != ADMIN_ID:
@@ -698,12 +727,22 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await update.message.reply_text(welcome_message, parse_mode=ParseMode.MARKDOWN)
     else:
-        await update.message.reply_text("🤖 به ربات آزمون خوش آمدید!")
+        # فقط لینک چنل را ارسال کن
+        channel_message = (
+            "🤖 به ربات آزمون خوش آمدید!\n\n"
+            "📢 **کانال نمونه برنامه برترها:**\n"
+            "https://t.me/konkorofkings"
+        )
+        
+        await update.message.reply_text(channel_message, parse_mode=ParseMode.MARKDOWN)
+
+    await show_main_menu(update, context)
 
     await show_main_menu(update, context)
 
 async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
+        [InlineKeyboardButton("📋 دریافت برنامه شخصی", callback_data="get_study_plan")],
         [InlineKeyboardButton("📝 شرکت در آزمون", callback_data="take_quiz")],
         [InlineKeyboardButton("🎯 ساخت آزمون سفارشی", callback_data="create_custom_quiz")],
         [InlineKeyboardButton("📊 نتایج من", callback_data="my_results")],
@@ -719,7 +758,6 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.callback_query.edit_message_text("🎯 منوی اصلی:", reply_markup=reply_markup)
     else:
         await update.message.reply_text("🎯 منوی اصلی:", reply_markup=reply_markup)
-
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -1001,11 +1039,307 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     elif data == "send_broadcast_now":
         await send_broadcast_now(update, context)
+    # در تابع handle_callback، بعد از هندلرهای موجود این موارد را اضافه کنید:
+    elif data == "get_study_plan":
+        await start_study_plan_request(update, context)
+    elif data == "study_plan_cancel":
+        await cancel_study_plan_request(update, context)
+    elif data.startswith("study_plan_grade_"):
+        grade = data.split("_")[3]
+        await handle_grade_selection(update, context, grade)
+    elif data.startswith("study_plan_field_"):
+        field = data.split("_")[3]
+        await handle_field_selection(update, context, field)
+    elif data == "study_plan_submit_exams":
+        await submit_study_plan_request(update, context)
+    elif data == "study_plan_show_example":
+        await show_exam_example(update, context)
     
     else:
         # اگر هیچکدام از هندلرها مطابقت نداشت
         logger.warning(f"Unknown callback data: {data}")
         await query.answer("⚠️ این دکمه در حال حاضر فعال نیست!")
+async def start_study_plan_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """شروع فرآیند دریافت برنامه شخصی"""
+    # پاک کردن داده‌های قبلی
+    if 'study_plan' in context.user_data:
+        del context.user_data['study_plan']
+    
+    context.user_data['study_plan'] = {
+        'step': 'select_grade',
+        'grade': '',
+        'field': '',
+        'exams_info': '',
+        'user_id': update.effective_user.id
+    }
+    
+    keyboard = [
+        [
+            InlineKeyboardButton("📚 دهم", callback_data="study_plan_grade_dahom"),
+            InlineKeyboardButton("📚 یازدهم", callback_data="study_plan_grade_yazdahom")
+        ],
+        [
+            InlineKeyboardButton("📚 دوازدهم", callback_data="study_plan_grade_davazdahom")
+        ],
+        [InlineKeyboardButton("❌ لغو", callback_data="study_plan_cancel")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.callback_query.edit_message_text(
+        "📋 دریافت برنامه شخصی\n\n"
+        "**مرحله ۱/۳: انتخاب پایه تحصیلی**\n\n"
+        "لطفاً پایه تحصیلی خود را انتخاب کنید:",
+        parse_mode=ParseMode.MARKDOWN,
+        reply_markup=reply_markup
+    )
+
+async def handle_grade_selection(update: Update, context: ContextTypes.DEFAULT_TYPE, grade: str):
+    """پردازش انتخاب پایه تحصیلی"""
+    persian_grades = {
+        'dahom': 'دهم',
+        'yazdahom': 'یازدهم',
+        'davazdahom': 'دوازدهم'
+    }
+    
+    context.user_data['study_plan']['grade'] = persian_grades.get(grade, grade)
+    context.user_data['study_plan']['step'] = 'select_field'
+    
+    keyboard = [
+        [
+            InlineKeyboardButton("🔬 تجربی", callback_data="study_plan_field_experimental"),
+            InlineKeyboardButton("📐 ریاضی", callback_data="study_plan_field_math")
+        ],
+        [
+            InlineKeyboardButton("📚 انسانی", callback_data="study_plan_field_humanities")
+        ],
+        [InlineKeyboardButton("🔙 بازگشت", callback_data="get_study_plan"),
+         InlineKeyboardButton("❌ لغو", callback_data="study_plan_cancel")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.callback_query.edit_message_text(
+        f"✅ پایه تحصیلی: **{persian_grades.get(grade, grade)}**\n\n"
+        "**مرحله ۲/۳: انتخاب رشته تحصیلی**\n\n"
+        "لطفاً رشته تحصیلی خود را انتخاب کنید:",
+        parse_mode=ParseMode.MARKDOWN,
+        reply_markup=reply_markup
+    )
+
+async def handle_field_selection(update: Update, context: ContextTypes.DEFAULT_TYPE, field: str):
+    """پردازش انتخاب رشته تحصیلی"""
+    persian_fields = {
+        'experimental': 'تجربی',
+        'math': 'ریاضی',
+        'humanities': 'انسانی'
+    }
+    
+    context.user_data['study_plan']['field'] = persian_fields.get(field, field)
+    context.user_data['study_plan']['step'] = 'enter_exams'
+    
+    example_text = (
+        "**قالب پیشنهادی:**\n"
+        "امتحان [نام درس] - تاریخ [تاریخ امتحان] - مباحث [مباحث مورد امتحان]\n\n"
+        "**مثال:**\n"
+        "امتحان ریاضی - تاریخ ۱۴۰۳/۱۰/۲۰ - مباحث: فصل ۳ و ۴\n"
+        "امتحان فیزیک - تاریخ ۱۴۰۳/۱۰/۲۵ - مباحث: فصل ۲\n\n"
+        "می‌توانید هر تعداد امتحان را با این قالب وارد کنید."
+    )
+    
+    keyboard = [
+        [InlineKeyboardButton("📝 مشاهده مثال", callback_data="study_plan_show_example")],
+        [InlineKeyboardButton("✅ اتمام ثبت", callback_data="study_plan_submit_exams")],
+        [InlineKeyboardButton("🔙 بازگشت", callback_data=f"study_plan_grade_{field}"),
+         InlineKeyboardButton("❌ لغو", callback_data="study_plan_cancel")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.callback_query.edit_message_text(
+        f"✅ پایه تحصیلی: **{context.user_data['study_plan']['grade']}**\n"
+        f"✅ رشته تحصیلی: **{persian_fields.get(field, field)}**\n\n"
+        "**مرحله ۳/۳: ثبت امتحانات مدرسه**\n\n"
+        "لطفاً امتحانات مدرسه خود را تا آزمون بعدی قلمچی وارد کنید.\n\n"
+        f"{example_text}\n\n"
+        "پیام خود را ارسال کنید:",
+        parse_mode=ParseMode.MARKDOWN,
+        reply_markup=reply_markup
+    )
+
+async def show_exam_example(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """نمایش مثال برای فرمت وارد کردن امتحانات"""
+    example_message = (
+        "**📋 نمونه فرمت صحیح:**\n\n"
+        "امتحان ریاضی - تاریخ ۱۴۰۳/۱۰/۲۰ - مباحث: فصل ۳ و ۴\n"
+        "امتحان فیزیک - تاریخ ۱۴۰۳/۱۰/۲۵ - مباحث: فصل ۲\n"
+        "امتحان شیمی - تاریخ ۱۴۰۳/۱۰/۲۸ - مباحث: فصل ۵\n\n"
+        "**📝 نکات مهم:**\n"
+        "• هر امتحان در یک خط جدا\n"
+        "• استفاده از خط تیره (-) برای جدا کردن بخش‌ها\n"
+        "• می‌توانید تاریخ را به هر فرمتی بنویسید\n"
+        "• برای اتمام، دکمه '✅ اتمام ثبت' را بزنید\n\n"
+        "حالا امتحانات خود را وارد کنید:"
+    )
+    
+    keyboard = [
+        [InlineKeyboardButton("✅ اتمام ثبت", callback_data="study_plan_submit_exams")],
+        [InlineKeyboardButton("🔙 بازگشت", callback_data="study_plan_cancel")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.callback_query.edit_message_text(
+        example_message,
+        parse_mode=ParseMode.MARKDOWN,
+        reply_markup=reply_markup
+    )
+
+async def handle_study_plan_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str):
+    """پردازش متن امتحانات وارد شده توسط کاربر"""
+    if 'study_plan' not in context.user_data:
+        await update.message.reply_text("❌ فرآیند دریافت برنامه شخصی شروع نشده است!")
+        return
+    
+    if context.user_data['study_plan']['step'] != 'enter_exams':
+        await update.message.reply_text("❌ در این مرحله نمی‌توانید امتحان وارد کنید!")
+        return
+    
+    # اضافه کردن متن جدید به اطلاعات امتحانات
+    current_exams = context.user_data['study_plan'].get('exams_info', '')
+    if current_exams:
+        current_exams += "\n"
+    
+    context.user_data['study_plan']['exams_info'] = current_exams + text
+    
+    # تأیید دریافت
+    lines_count = len(context.user_data['study_plan']['exams_info'].split('\n'))
+    
+    keyboard = [
+        [InlineKeyboardButton("✅ اتمام ثبت", callback_data="study_plan_submit_exams")],
+        [InlineKeyboardButton("❌ لغو", callback_data="study_plan_cancel")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.message.reply_text(
+        f"✅ امتحان ثبت شد!\n\n"
+        f"📊 تعداد امتحانات ثبت‌شده: {lines_count}\n\n"
+        f"می‌توانید امتحانات بیشتری وارد کنید یا دکمه '✅ اتمام ثبت' را بزنید.",
+        reply_markup=reply_markup
+    )
+
+async def submit_study_plan_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """ثبت نهایی درخواست برنامه شخصی و ارسال به ادمین"""
+    if 'study_plan' not in context.user_data:
+        await update.callback_query.edit_message_text(
+            "❌ اطلاعات برنامه شخصی یافت نشد! لطفاً دوباره شروع کنید.",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 منوی اصلی", callback_data="main_menu")]])
+        )
+        return
+    
+    study_plan = context.user_data['study_plan']
+    
+    # بررسی کامل بودن اطلاعات
+    if not study_plan.get('grade') or not study_plan.get('field'):
+        await update.callback_query.edit_message_text(
+            "❌ اطلاعات پایه یا رشته تکمیل نشده است!",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 شروع مجدد", callback_data="get_study_plan")]])
+        )
+        return
+    
+    # ذخیره در دیتابیس
+    try:
+        result = save_study_plan_request(
+            study_plan['user_id'],
+            study_plan['grade'],
+            study_plan['field'],
+            study_plan.get('exams_info', '')
+        )
+        
+        if not result:
+            raise Exception("ذخیره در دیتابیس انجام نشد")
+        
+    except Exception as e:
+        logger.error(f"Error saving study plan request: {e}")
+        await update.callback_query.edit_message_text(
+            "❌ خطا در ثبت اطلاعات! لطفاً دوباره تلاش کنید.",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 منوی اصلی", callback_data="main_menu")]])
+        )
+        return
+    
+    # دریافت اطلاعات کاربر
+    user_info = get_user_complete_info(study_plan['user_id'])
+    
+    # ایجاد پیام برای ادمین
+    admin_message = (
+        "📬 **درخواست برنامه شخصی جدید**\n\n"
+        f"👤 **کاربر:** {user_info[2] if user_info else 'نامشخص'} ({user_info[1] if user_info else 'نامشخص'})\n"
+        f"🆔 **آیدی:** `{study_plan['user_id']}`\n"
+        f"📞 **شماره:** {user_info[3] if user_info and user_info[3] else 'ثبت نشده'}\n\n"
+        f"📋 **اطلاعات دریافتی:**\n"
+        f"• 📚 پایه تحصیلی: {study_plan['grade']}\n"
+        f"• 🎯 رشته تحصیلی: {study_plan['field']}\n\n"
+        f"📚 **امتحانات مدرسه تا آزمون قلمچی:**\n"
+    )
+    
+    # اضافه کردن امتحانات
+    exams_info = study_plan.get('exams_info', '')
+    if exams_info:
+        exams_list = exams_info.split('\n')
+        for i, exam in enumerate(exams_list, 1):
+            if exam.strip():
+                admin_message += f"{i}. {exam.strip()}\n"
+    else:
+        admin_message += "⚠️ هیچ امتحانی ثبت نشده است.\n"
+    
+    admin_message += f"\n🕒 **زمان ثبت درخواست:** {datetime.now().strftime('%Y/%m/%d %H:%M')}\n"
+    admin_message += f"📊 **کد درخواست:** SP-{result[0][0]}"
+    
+    try:
+        # ارسال به ادمین
+        await context.bot.send_message(
+            ADMIN_ID,
+            admin_message,
+            parse_mode=ParseMode.MARKDOWN
+        )
+        
+        # پیام موفقیت به کاربر
+        success_message = (
+            "✅ **درخواست برنامه شخصی شما ثبت شد!**\n\n"
+            f"📋 **اطلاعات ثبت شده:**\n"
+            f"• پایه تحصیلی: {study_plan['grade']}\n"
+            f"• رشته تحصیلی: {study_plan['field']}\n"
+            f"• تعداد امتحانات ثبت شده: {len(exams_info.split('\\n')) if exams_info else 0}\n\n"
+            "🎯 **برنامه شخصی شما توسط مشاوران ما بررسی شده و به زودی برای شما ارسال خواهد شد.**\n\n"
+            "با تشکر از اعتماد شما! ✨"
+        )
+        
+        keyboard = [[InlineKeyboardButton("🔙 منوی اصلی", callback_data="main_menu")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await update.callback_query.edit_message_text(
+            success_message,
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=reply_markup
+        )
+        
+    except Exception as e:
+        logger.error(f"Error sending study plan request to admin: {e}")
+        await update.callback_query.edit_message_text(
+            "✅ درخواست شما ثبت شد، اما خطایی در ارسال به ادمین رخ داد.\n"
+            "به زودی با شما تماس خواهیم گرفت.",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 منوی اصلی", callback_data="main_menu")]])
+        )
+    
+    # پاک کردن داده‌های موقت
+    if 'study_plan' in context.user_data:
+        del context.user_data['study_plan']
+
+async def cancel_study_plan_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """لغو فرآیند دریافت برنامه شخصی"""
+    if 'study_plan' in context.user_data:
+        del context.user_data['study_plan']
+    
+    await update.callback_query.edit_message_text(
+        "❌ دریافت برنامه شخصی لغو شد.",
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 منوی اصلی", callback_data="main_menu")]])
+)
 async def show_full_ranking(update: Update, context: ContextTypes.DEFAULT_TYPE, quiz_id: int):
     """نمایش جزئیات کامل رتبه‌بندی یک آزمون"""
     rankings = get_quiz_comprehensive_rankings(quiz_id)
@@ -1803,6 +2137,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['custom_quiz'].get('step') == 'waiting_for_time'):
         
         await process_time_limit_input(update, context)
+        return
+    # در تابع handle_message، بعد از بخش پردازش کاربران عادی و قبل از بخش پردازش پیشفرض، این کد را اضافه کنید:
+
+    # ===== پردازش متن امتحانات برای برنامه شخصی =====
+    if ('study_plan' in context.user_data and 
+        context.user_data['study_plan']['step'] == 'enter_exams'):
+        
+        await handle_study_plan_text(update, context, text)
         return
 
     # ===== پردازش پیشفرض =====
