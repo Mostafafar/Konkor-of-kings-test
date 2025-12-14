@@ -2121,26 +2121,31 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else:
                 await update.message.reply_text("❌ محتوای نامعتبر! لطفاً متن، عکس، نظرسنجی یا فایل ارسال کنید.")
                 return
-         if context.user_data.get('admin_action') == 'direct_message':
-            direct_data = context.user_data.get('direct_message', {})
         
+        # 1.15 پردازش پیام مستقیم - ADD THIS SECTION
+        if context.user_data.get('admin_action') == 'direct_message':
+            direct_data = context.user_data.get('direct_message', {})
+            
             if direct_data.get('step') == 'enter_user_id':
-            # پردازش آیدی کاربر
+                # پردازش آیدی کاربر
                 await process_direct_message_user_id(update, context, text)
                 return
-        
+            
             elif direct_data.get('step') == 'enter_message':
-            # پردازش متن پیام
+                # پردازش متن پیام
                 await process_direct_message_text(update, context, text)
                 return
-        
-        # اگر عکس/فایل ارسال شده باشد
+            
+            # اگر عکس/فایل ارسال شده باشد
             if update.message.photo or update.message.document:
                 await update.message.reply_text(
                     "📎 در حال حاضر فقط پیام متنی پشتیبانی می‌شود.\n\n"
                     "لطفاً متن پیام را وارد کنید:"
                 )
                 return
+        
+        # 1.1 پردازش افزودن منبع جدید
+        
         # بقیه کدهای پردازش ادمین بدون تغییر...
         # ...
     
