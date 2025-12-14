@@ -104,6 +104,12 @@ def get_user_complete_info(user_id: int):
         (user_id,)
     )
     return result[0] if result else None
+def get_user_by_id(user_id: int):
+    """دریافت اطلاعات کاربر بر اساس آیدی"""
+    return execute_query(
+        "SELECT user_id, full_name, username, phone_number FROM users WHERE user_id = %s",
+        (user_id,)
+    )
 
 
         
@@ -1052,6 +1058,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     elif data == "study_plan_show_example":
         await show_exam_example(update, context)
+    elif data == "admin_direct_message":
+        await admin_direct_message_start(update, context)
+    elif data == "cancel_direct_message":
+        await cancel_direct_message(update, context)
     
     else:
         # اگر هیچکدام از هندلرها مطابقت نداشت
