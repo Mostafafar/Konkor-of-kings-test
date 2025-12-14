@@ -1062,11 +1062,216 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await admin_direct_message_start(update, context)
     elif data == "cancel_direct_message":
         await cancel_direct_message(update, context)
+    elif data == "confirm_send_direct_message":
+        await confirm_send_direct_message(update, context)
+    elif data == "edit_direct_message_text":
+        await edit_direct_message_text(update, context)
     
     else:
         # اگر هیچکدام از هندلرها مطابقت نداشت
         logger.warning(f"Unknown callback data: {data}")
         await query.answer("⚠️ این دکمه در حال حاضر فعال نیست!")
+async def admin_direct_message_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """شروع فرآیند ارسال پیام مستقیم"""
+    if update.effective_user.id != ADMIN_ID:
+        return
+    
+    context.user_data['admin_action'] = 'direct_message'
+    context.user_data['direct_message'] = {'step': 'enter_user_id'}
+    
+    keyboard = [[InlineKeyboardButton("❌ لغو", callback_data="cancel_direct_message")]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.callback_query.edit_message_text(
+        "📨 ارسال پیام مستقیم به کاربر\n\n"
+        "**مرحله ۱/۳: وارد کردن آیدی کاربر**\n\n"
+        "لطفاً آیدی عددی کاربر را وارد کنید:\n\n"
+        "💡 نکته: آیدی عددی کاربر را می‌توانید از بخش 'مشاهده کاربران' پیدا کنید.",
+        parse_mode=ParseMode.MARKDOWN,
+        reply_markup=reply_markup
+    )
+
+async def process_direct_message_user_id(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id_input: str):
+    """پردازش آیدی کاربر وارد شده"""
+    try:
+        user_id = int(user_id_input)
+        
+        # بررسی وجود کاربر
+        user_info = get_user_by_id(user_id)
+        if not user_info:
+            await update.message.reply_text(
+                f"❌ کاربر با آیدی `{user_id}` یافت نشد!\n\n"
+                f"لطفاً آیدی معتبر وارد کنید:",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return
+        
+        user_data = user_info[0]
+        full_name = user_data[1] or "نامشخص"
+        username = f"@{user_data[2]}" if user_data[2] else "ندارد"
+        phone_number = user_data[3] or "ثبت نشده"
+        
+        # ذخیره اطلاعات کاربر
+        context.user_data['direct_message']['target_user_id'] = user_id
+        context.user_data['direct_message']['target_user_info'] = {
+            'full_name': full_name,
+            'username': username,
+            'phone_number': phone_number
+        }
+        context.user_data['direct_message']['step'] = 'enter_message'
+        
+        keyboard = [
+            [InlineKeyboardButton("❌ لغو", callback_data="cancel_direct_message")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await update.message.reply_text(
+            f"✅ کاربر یافت شد!\n\n"
+            f"👤 **اطلاعات کاربر:**\n"
+            f"• نام: {full_name}\n"
+            f"• یوزرنیم: {username}\n"
+            f"• شماره: {phone_number}\n"
+            f"• آیدی: `{user_id}`\n\n"
+            f"**مرحله ۲/۳: وارد کردن پیام**\n\n"
+            f"لطفاً متن پیام خود را وارد کنید:",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=reply_markup
+        )
+        
+    except ValueError:
+        await update.message.reply_text(
+            "❌ آیدی باید یک عدد باشد!\n\n"
+            "لطفاً آیدی عددی کاربر را وارد کنید:"
+        )
+    except Exception as e:
+        logger.error(f"Error processing user ID: {e}")
+        await update.message.reply_text("❌ خطا در پردازش آیدی کاربر!")
+
+async def process_direct_message_text(update: Update, context: ContextTypes.DEFAULT_TYPE, message_text: str):
+    """پردازش متن پیام و نمایش پیش‌نمایش"""
+    if len(message_text.strip()) < 1:
+        await update.message.reply_text("❌ پیام نمی‌تواند خالی باشد!")
+        return
+    
+    direct_data = context.user_data['direct_message']
+    target_user_id = direct_data['target_user_id']
+    user_info = direct_data['target_user_info']
+    
+    # ذخیره متن پیام
+    direct_data['message_text'] = message_text
+    direct_data['step'] = 'confirm_send'
+    
+    keyboard = [
+        [
+            InlineKeyboardButton("✅ ارسال پیام", callback_data="confirm_send_direct_message"),
+            InlineKeyboardButton("✏️ ویرایش متن", callback_data="edit_direct_message_text")
+        ],
+        [InlineKeyboardButton("❌ لغو", callback_data="cancel_direct_message")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.message.reply_text(
+        f"📝 **پیش‌نمایش پیام:**\n\n"
+        f"{message_text}\n\n"
+        f"➖➖➖➖➖➖➖➖➖➖\n"
+        f"👤 **ارسال به:**\n"
+        f"• نام: {user_info['full_name']}\n"
+        f"• یوزرنیم: {user_info['username']}\n"
+        f"• آیدی: `{target_user_id}`\n\n"
+        f"آیا می‌خواهید این پیام ارسال شود؟",
+        parse_mode=ParseMode.MARKDOWN,
+        reply_markup=reply_markup
+    )
+
+async def confirm_send_direct_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """ارسال نهایی پیام مستقیم"""
+    query = update.callback_query
+    await query.answer()
+    
+    if 'direct_message' not in context.user_data:
+        await query.edit_message_text("❌ اطلاعات پیام یافت نشد!")
+        return
+    
+    direct_data = context.user_data['direct_message']
+    target_user_id = direct_data['target_user_id']
+    message_text = direct_data['message_text']
+    user_info = direct_data['target_user_info']
+    
+    try:
+        # ارسال پیام به کاربر
+        await context.bot.send_message(
+            chat_id=target_user_id,
+            text=f"📨 پیام از ادمین:\n\n{message_text}"
+        )
+        
+        # پیام موفقیت به ادمین
+        success_message = (
+            f"✅ پیام با موفقیت ارسال شد!\n\n"
+            f"👤 **به کاربر:**\n"
+            f"• نام: {user_info['full_name']}\n"
+            f"• یوزرنیم: {user_info['username']}\n"
+            f"• آیدی: `{target_user_id}`\n\n"
+            f"📝 **متن پیام:**\n{message_text}\n\n"
+            f"🕒 **زمان ارسال:** {datetime.now().strftime('%Y/%m/%d %H:%M')}"
+        )
+        
+        keyboard = [
+            [InlineKeyboardButton("📨 ارسال پیام دیگر", callback_data="admin_direct_message")],
+            [InlineKeyboardButton("🔙 پنل ادمین", callback_data="admin_panel")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(success_message, parse_mode=ParseMode.MARKDOWN, reply_markup=reply_markup)
+        
+        # لاگ کردن ارسال
+        logger.info(f"✅ DIRECT_MESSAGE: Admin sent message to user {target_user_id}: {message_text[:50]}...")
+        
+    except Exception as e:
+        error_message = f"❌ خطا در ارسال پیام!\n\nخطا: {str(e)}"
+        await query.edit_message_text(error_message)
+        logger.error(f"❌ DIRECT_MESSAGE: Failed to send message to user {target_user_id}: {e}")
+    
+    # پاک کردن داده‌های موقت
+    if 'direct_message' in context.user_data:
+        del context.user_data['direct_message']
+    if 'admin_action' in context.user_data:
+        del context.user_data['admin_action']
+
+async def edit_direct_message_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """ویرایش متن پیام"""
+    query = update.callback_query
+    await query.answer()
+    
+    if 'direct_message' in context.user_data:
+        context.user_data['direct_message']['step'] = 'enter_message'
+    
+    keyboard = [[InlineKeyboardButton("❌ لغو", callback_data="cancel_direct_message")]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.edit_message_text(
+        "✏️ ویرایش متن پیام\n\n"
+        "لطفاً متن جدید پیام را وارد کنید:",
+        reply_markup=reply_markup
+    )
+
+async def cancel_direct_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """لغو فرآیند ارسال پیام مستقیم"""
+    query = update.callback_query
+    await query.answer()
+    
+    # پاک کردن داده‌های موقت
+    if 'direct_message' in context.user_data:
+        del context.user_data['direct_message']
+    if 'admin_action' in context.user_data:
+        del context.user_data['admin_action']
+    
+    keyboard = [[InlineKeyboardButton("🔙 پنل ادمین", callback_data="admin_panel")]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.edit_message_text(
+        "❌ ارسال پیام مستقیم لغو شد.",
+        reply_markup=reply_markup
+    )
 async def start_study_plan_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """شروع فرآیند دریافت برنامه شخصی"""
     # پاک کردن داده‌های قبلی
@@ -2780,13 +2985,13 @@ async def show_admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🏆 مشاهده رتبه‌بندی", callback_data="admin_quiz_rankings")],
         [InlineKeyboardButton("👥 مشاهده کاربران", callback_data="admin_view_users")],
         [InlineKeyboardButton("📊 مشاهده نتایج", callback_data="admin_view_results")],
+        [InlineKeyboardButton("📨 ارسال پیام مستقیم", callback_data="admin_direct_message")],  # خط جدید
         [InlineKeyboardButton("📢 ارسال پیام همگانی", callback_data="admin_broadcast")],
         [InlineKeyboardButton("🔙 منوی اصلی", callback_data="main_menu")]
     ]
     
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.callback_query.edit_message_text("🔧 پنل مدیریت ادمین:", reply_markup=reply_markup)
-
 async def admin_quiz_rankings(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         return
